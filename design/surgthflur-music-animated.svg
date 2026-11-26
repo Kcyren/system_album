@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 300" role="img" aria-label="Surgthflur Music animated wordmark">
+  <style>
+    .sp {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: spWave 1.6s ease-in-out infinite alternate;
+    }
+    .spBoot { animation: fadeIn 0.3s ease-out both; }
+    .ltB, .ltW, .ltM { animation: fadeIn 0.4s ease-out both, shimB 4s linear infinite; }
+    .ltB { fill: #3D68FF; }
+    .ltW { fill: #FFFFFF; }
+    .ltM { fill: #7E97E8; animation-name: fadeIn, shimM; font-size: 20px; }
+    .cursor { fill: #5C86FF; animation: fadeIn 0.01s linear 3s both, blink 1.05s steps(1) 3.01s infinite; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes spWave {
+      from { transform: scaleY(0.3); opacity: 0.45; }
+      to   { transform: scaleY(1);   opacity: 1; }
+    }
+    @keyframes shimB {
+      0%, 22%, 100% { fill: #3D68FF; }
+      11%           { fill: #8FA9FF; }
+    }
+    @keyframes shimM {
+      0%, 22%, 100% { fill: #7E97E8; }
+      11%           { fill: #C7D2FF; }
+    }
+    /* white letters shimmer too */
+    .ltW { animation-name: fadeIn, shimW; }
+    @keyframes shimW {
+      0%, 22%, 100% { fill: #FFFFFF; }
+      11%           { fill: #A9BBFF; }
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .sp, .spBoot, .ltB, .ltW, .ltM, .cursor { animation: none; }
+      .spBoot, .ltB, .ltW, .ltM, .cursor { opacity: 1; }
+    }
+  </style>
+  <rect width="900" height="300" fill="#050510"/>
+  <g fill="#3D68FF">
+    <g class="spBoot" style="animation-delay:0.25s"><rect class="sp" style="animation-delay:0.00s" x="330" y="199.0" width="8" height="18" rx="4"/></g>
+    <g class="spBoot" style="animation-delay:0.30s"><rect class="sp" style="animation-delay:0.12s" x="348" y="191.0" width="8" height="34" rx="4"/></g>
+    <g class="spBoot" style="animation-delay:0.36s"><rect class="sp" style="animation-delay:0.25s" x="366" y="181.0" width="8" height="54" rx="4"/></g>
+    <g class="spBoot" style="animation-delay:0.42s"><rect class="sp" style="animation-delay:0.37s" x="384" y="193.0" width="8" height="30" rx="4"/></g>
+    <g class="spBoot" style="animation-delay:0.47s"><rect class="sp" style="animation-delay:0.49s" x="402" y="203.0" width="8" height="10" rx="4"/></g>
+    <g class="spBoot" style="animation-delay:0.53s"><rect class="sp" style="animation-delay:0.62s" x="420" y="187.0" width="8" height="42" rx="4"/></g>
+    <g class="spBoot" style="animation-delay:0.58s"><rect class="sp" style="animation-delay:0.74s" x="438" y="197.0" width="8" height="22" rx="4"/></g>
+    <g class="spBoot" style="animation-delay:0.64s"><rect class="sp" style="animation-delay:0.86s" x="456" y="181.0" width="8" height="54" rx="4"/></g>
+    <g class="spBoot" style="animation-delay:0.69s"><rect class="sp" style="animation-delay:0.98s" x="474" y="195.0" width="8" height="26" rx="4"/></g>
+    <g class="spBoot" style="animation-delay:0.74s"><rect class="sp" style="animation-delay:1.11s" x="492" y="189.0" width="8" height="38" rx="4"/></g>
+    <g class="spBoot" style="animation-delay:0.80s"><rect class="sp" style="animation-delay:1.23s" x="510" y="201.0" width="8" height="14" rx="4"/></g>
+    <g class="spBoot" style="animation-delay:0.85s"><rect class="sp" style="animation-delay:1.35s" x="528" y="185.0" width="8" height="46" rx="4"/></g>
+    <g class="spBoot" style="animation-delay:0.91s"><rect class="sp" style="animation-delay:1.48s" x="546" y="197.0" width="8" height="22" rx="4"/></g>
+  </g>
+  <text x="450" y="150" text-anchor="middle" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="64" font-weight="800" letter-spacing="6"><tspan class="ltB" style="animation-delay:0.95s,0.00s">S</tspan><tspan class="ltB" style="animation-delay:1.06s,0.16s">U</tspan><tspan class="ltB" style="animation-delay:1.17s,0.32s">R</tspan><tspan class="ltB" style="animation-delay:1.28s,0.48s">G</tspan><tspan class="ltW" style="animation-delay:1.42s,0.00s">T</tspan><tspan class="ltW" style="animation-delay:1.53s,0.16s">H</tspan><tspan class="ltW" style="animation-delay:1.64s,0.32s">F</tspan><tspan class="ltW" style="animation-delay:1.75s,0.48s">L</tspan><tspan class="ltW" style="animation-delay:1.86s,0.64s">U</tspan><tspan class="ltW" style="animation-delay:1.97s,0.80s">R</tspan></text>
+  <text x="450" y="262" text-anchor="middle" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="400" letter-spacing="16"><tspan class="ltM" style="animation-delay:2.30s,0.00s">M</tspan><tspan class="ltM" style="animation-delay:2.41s,0.16s">U</tspan><tspan class="ltM" style="animation-delay:2.52s,0.32s">S</tspan><tspan class="ltM" style="animation-delay:2.63s,0.48s">I</tspan><tspan class="ltM" style="animation-delay:2.74s,0.64s">C</tspan><tspan class="cursor" dx="8" font-size="22">&#9646;</tspan></text>
+</svg>

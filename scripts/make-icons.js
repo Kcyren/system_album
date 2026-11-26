@@ -44,37 +44,54 @@ function png(width, height, rgba) {
 }
 
 // ------------------------------------------------------------------ drawing
-const hex = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
-const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
-const BLUE_A = hex('#5278ff');
-const BLUE_B = hex('#173eae');
-const BLUE_C = hex('#101a47');
-const DISC = hex('#0b0f1d');
-const GROOVE = hex('#26304c');
-const LABEL = hex('#355fff');
-const HOLE = hex('#080b14');
+// The Surgthflur - Music mark: a ring of 56 waveform bars around an 8-bar
+// equalizer (same geometry as public/brand/logo-mark.svg, centre 400,340).
+const BG = [5, 5, 16];
+const RING = [46, 91, 255];
+const EQ = [92, 134, 255];
+const RING_TOPS = [152, 143.03, 134.4, 126.44, 119.47, 113.75, 109.5, 106.88, 106, 106.88, 109.5, 113.75, 119.47, 126.44, 134.4, 143.03, 152, 143.03, 134.4, 126.44, 119.47, 113.75, 109.5, 106.88, 106, 106.88, 109.5, 113.75, 119.47, 126.44, 134.4, 143.03, 152, 143.03, 134.4, 126.44, 119.47, 113.75, 109.5, 106.88, 106, 106.88, 109.5, 113.75, 119.47, 126.44, 134.4, 143.03, 152, 143.03, 134.4, 126.44, 119.47, 113.75, 109.5, 106.88];
+const EQ_BARS = [[337, 325, 30], [355, 312.5, 55], [373, 295, 90], [391, 310, 60], [409, 320, 40], [427, 305, 70], [445, 315, 50], [463, 325, 30]];
+const STEP = (2 * Math.PI) / 56;
 
-function gradient(t) {
-  return t < 0.55 ? mix(BLUE_A, BLUE_B, t / 0.55) : mix(BLUE_B, BLUE_C, (t - 0.55) / 0.45);
+// Distance from point to a capsule (rounded bar) along one axis.
+function inCapsule(along, across, from, to, r) {
+  const a = Math.min(Math.max(along, from + r), to - r);
+  return Math.hypot(along - a, across) <= r;
 }
 
-// Returns [r,g,b,a] for a point. `disc` = { cx, cy, r } in pixels.
-function sample(x, y, w, h, { radius, disc, fullBleed }) {
-  // rounded-rect mask
-  if (!fullBleed && radius > 0) {
-    const dx = Math.max(radius - x, 0, x - (w - radius));
-    const dy = Math.max(radius - y, 0, y - (h - radius));
-    if (dx * dx + dy * dy > radius * radius) return [0, 0, 0, 0];
+// Colour of the logo at logo-space point (u, v); null = background.
+function logoAt(u, v) {
+  for (const [x, y, h] of EQ_BARS) {
+    if (inCapsule(v, u - (x + 3.5), y, y + h, 3.5)) return EQ;
   }
-  let color = gradient((x / w + y / h) / 2);
-  const d = Math.hypot(x - disc.cx, y - disc.cy) / disc.r; // 0..1 inside disc
-  if (d <= 1) {
-    color = DISC;
-    const ring = (d * 190) % 14;
-    if (d > 0.5 && d < 0.95 && ring < 1.2) color = GROOVE;
-    if (d <= 84 / 190) color = LABEL;
-    if (d <= 12 / 190) color = HOLE;
+  const dx = u - 400;
+  const dy = v - 340;
+  const r = Math.hypot(dx, dy);
+  if (r < 160 || r > 240) return null;
+  let theta = Math.atan2(dx, -dy);
+  if (theta < 0) theta += 2 * Math.PI;
+  const i = Math.round(theta / STEP) % 56;
+  const off = theta - i * STEP;
+  const along = r * Math.cos(off);
+  const across = r * Math.sin(off);
+  return inCapsule(along, across, 170, 340 - RING_TOPS[i], 3.5) ? RING : null;
+}
+
+// opts: { radius (corner, px), scale (logo size vs canvas), cx, cy (logo centre in px), unit (logo units per px) }
+function sample(x, y, w, h, { radius, cx, cy, unit }) {
+  if (radius > 0) {
+    const ddx = Math.max(radius - x, 0, x - (w - radius));
+    const ddy = Math.max(radius - y, 0, y - (h - radius));
+    if (ddx * ddx + ddy * ddy > radius * radius) return [0, 0, 0, 0];
   }
+  const u = 400 + (x - cx) * unit;
+  const v = 340 + (y - cy) * unit;
+  // soft blue halo behind the mark
+  const d = Math.hypot(u - 400, v - 340) / 260;
+  const halo = Math.max(0, 0.35 * (1 - d));
+  let color = BG.map((c, k) => c + (RING[k] - c) * halo);
+  const hit = logoAt(u, v);
+  if (hit) color = hit;
   return [...color, 255];
 }
 
@@ -101,13 +118,10 @@ function render(w, h, opts) {
   return png(w, h, buf);
 }
 
-function icon(size, { maskable = false, fullBleed = false } = {}) {
-  const scale = maskable ? 0.72 : 1; // maskable icons need a safe zone
-  return render(size, size, {
-    radius: size * (112 / 512),
-    fullBleed: maskable || fullBleed,
-    disc: { cx: size / 2, cy: size / 2, r: size * (190 / 512) * scale },
-  });
+// The mark spans about 480 logo units; "fill" is how much of the icon it covers.
+function icon(size, { maskable = false, rounded = true } = {}) {
+  const fill = maskable ? 0.62 : 0.86;
+  return render(size, size, { radius: rounded && !maskable ? size * 0.22 : 0, cx: size / 2, cy: size / 2, unit: 480 / (size * fill) });
 }
 
 fs.mkdirSync(OUT, { recursive: true });
@@ -115,8 +129,8 @@ const files = {
   'icon-192.png': icon(192),
   'icon-512.png': icon(512),
   'icon-maskable-512.png': icon(512, { maskable: true }),
-  'apple-touch-icon.png': icon(180, { fullBleed: true }),
-  'og-default.png': render(1200, 630, { radius: 0, fullBleed: true, disc: { cx: 860, cy: 315, r: 260 } }),
+  'apple-touch-icon.png': icon(180, { rounded: false }),
+  'og-default.png': render(1200, 630, { radius: 0, cx: 600, cy: 315, unit: 480 / 520 }),
 };
 for (const [name, data] of Object.entries(files)) {
   fs.writeFileSync(path.join(OUT, name), data);

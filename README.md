@@ -133,6 +133,9 @@ Good to know:
 
 ---
 
+## Logos
+The original logo designs are in [](design/).  builds the site versions in : the ring mark (header, footer, record label), the full animated logo (opening/refresh screen) and the SURGTHFLUR wordmark (top of the homepage).  redraws the app icons.
+
 ## Project layout
 
 ```

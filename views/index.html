@@ -8,6 +8,7 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="preload" href="/brand/logo-animated.svg" as="image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap">
@@ -15,10 +16,16 @@
 <script type="module" src="/js/app.js"></script>
 </head>
 <body>
+<div class="splash" id="splash" role="status" aria-live="polite" aria-label="Loading Surgthflur - Music">
+  <img class="splash-logo" src="/brand/logo-animated.svg" alt="" width="300" height="300">
+  <div class="splash-status"><span id="splash-line">CONNECTING</span><span class="splash-cursor" aria-hidden="true"></span></div>
+  <div class="splash-bar" aria-hidden="true"><i id="splash-fill"></i></div>
+  <div class="splash-pct" id="splash-pct" aria-hidden="true">0%</div>
+</div>
 <a class="skip-link" href="#main">Skip to content</a>
 <div class="shell">
   <header class="header">
-    <a class="brand" href="/" data-link><span class="brand-mark">S</span> SURGTHFLUR<span class="brand-dash">-</span>MUSIC</a>
+    <a class="brand" href="/" data-link><span class="brand-mark logo"><img src="/brand/logo-mark.svg" alt="" width="40" height="40"></span> SURGTHFLUR<span class="brand-dash">-</span>MUSIC</a>
     <nav class="nav" aria-label="Main navigation">
       <a href="/#music" data-link>Music</a>
       <a href="/#albums" data-link>Albums</a>
@@ -37,7 +44,8 @@
     <div id="home">
       <section class="hero">
         <div class="hero-copy">
-          <div class="overline" id="hero-overline">Surgthflur · independent sound</div>
+          <img class="hero-wordmark" src="/brand/wordmark-animated.svg" alt="Surgthflur - Music" width="600" height="190">
+          <div class="overline" id="hero-overline">Independent sound</div>
           <h1 id="hero-title">Every take.<br>Every <span class="blue">step.</span><br>All sound.</h1>
           <p id="hero-text">Raw freestyles, new experiments, and the journey behind them. This is Surgthflur making music for the love of it.</p>
           <div class="buttons">
@@ -47,7 +55,7 @@
           <div class="hero-foot"><span class="spark">✳</span><span><b>No account needed.</b> Just come as you are and listen.</span></div>
         </div>
         <div class="visual led-frame" id="hero-visual">
-          <div class="visual-record" id="hero-record"><div class="visual-label" id="hero-label"><span>SURG</span></div></div>
+          <div class="visual-record" id="hero-record"><div class="visual-label" id="hero-label"><img class="label-mark" src="/brand/logo-mark.svg" alt=""></div></div>
           <div class="visual-top"><span>Surgthflur<br>Music</span><span>Sound journal<br><span id="hero-kind">Latest drop</span></span></div>
           <div class="visual-bottom">
             <strong>THE<br>PROCESS<br>IS THE ART.</strong>
@@ -154,7 +162,7 @@
   </main>
 
   <footer class="footer">
-    <div class="brand small"><span class="brand-mark">S</span> SURGTHFLUR<span class="brand-dash">-</span>MUSIC</div>
+    <div class="brand small"><span class="brand-mark logo"><img src="/brand/logo-mark.svg" alt="" width="40" height="40"></span> SURGTHFLUR<span class="brand-dash">-</span>MUSIC</div>
     <span>Made for the music, and the person making it.</span>
     <a href="/studio" class="footer-studio">Creator Studio</a>
   </footer>

@@ -570,3 +570,31 @@ html.fire .hero::before { background: radial-gradient(ellipse, rgb(255 90 30 / .
 .np-lyrics { position: relative; }
 .np-lyrics p.synced { white-space: normal; }
 html.fire .ribbon span:nth-child(2), html.fire .spark { color: #ffb37a; }
+
+/* ==========================================================================
+   Logos (public/brand) + opening / refresh screen
+   ========================================================================== */
+.brand-mark.logo { background: none; box-shadow: none; width: 40px; height: 40px; border-radius: 50%; overflow: visible; }
+.brand-mark.logo img { width: 40px; height: 40px; display: block; filter: drop-shadow(0 0 6px rgb(var(--glow) / .5)); }
+.brand.small .brand-mark.logo, .brand.small .brand-mark.logo img { width: 32px; height: 32px; }
+.brand-dash { color: var(--blue-soft); margin: 0 6px; font-weight: 400; }
+.hero-wordmark { display: block; width: min(100%, 420px); height: auto; margin: -10px 0 4px -14px; }
+.visual-label .label-mark { width: 82%; height: 82%; object-fit: contain; }
+html.fire .brand-mark.logo img, html.fire .hero-wordmark, html.fire .visual-label .label-mark, html.fire .splash-logo { filter: hue-rotate(170deg) saturate(1.35); }
+
+.splash { position: fixed; inset: 0; z-index: 100; background: #050510; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  transition: opacity .6s ease, visibility .6s ease;
+  animation: splash-failsafe .6s ease 9s forwards; /* never block the site if something goes wrong */ }
+.splash.done { opacity: 0; visibility: hidden; pointer-events: none; }
+@keyframes splash-failsafe { to { opacity: 0; visibility: hidden; pointer-events: none; } }
+.splash-logo { width: min(64vw, 300px); height: auto; }
+.splash-status { margin-top: 6px; font: 500 13px Consolas, 'Courier New', monospace; letter-spacing: 2px; color: #8ea8ff; min-height: 1.3em; }
+.splash-cursor { display: inline-block; width: .55em; height: 1em; background: #5c86ff; vertical-align: text-bottom; margin-left: 4px; animation: splash-blink 1s steps(1) infinite; }
+@keyframes splash-blink { 50% { opacity: 0; } }
+.splash-bar { width: min(60vw, 260px); height: 3px; background: #131b3a; border-radius: 99px; overflow: hidden; margin-top: 10px; }
+.splash-bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #2e5bff, #7e97ff); border-radius: 99px; transition: width .35s ease; }
+.splash-pct { font: 500 11px Consolas, monospace; color: #565e8a; letter-spacing: 3px; margin-top: 6px; }
+html.fire .splash-bar i { background: linear-gradient(90deg, #c2310c, #ffb37a); }
+html.fire .splash-status { color: #ffb37a; }
+@media (prefers-reduced-motion: reduce) { .splash { display: none; } }
+@media (max-width: 650px) { .hero-wordmark { width: min(100%, 340px); margin-left: -10px; } }

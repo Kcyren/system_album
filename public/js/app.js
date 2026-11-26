@@ -650,7 +650,7 @@ function pickDiscover(pool) {
 function renderHero() {
   const p = state.profile;
   if (p.tagline) $('#hero-text').textContent = p.tagline;
-  $('#hero-overline').textContent = `${p.artistName} · independent sound`;
+  $('#hero-overline').textContent = 'Independent sound';
 
   // The pinned "featured" track if there is one, otherwise the newest upload.
   const featured = trackById(p.featuredTrackId);
@@ -1191,7 +1191,31 @@ function showSkeletons() {
   }
 }
 
+// ------------------------------------------------- opening / refresh screen
+// Shows the animated logo with real loading steps, then fades out.
+const splash = {
+  el: document.getElementById('splash'),
+  step(text, percent) {
+    if (!this.el) return;
+    $('#splash-line').textContent = text;
+    $('#splash-fill').style.width = `${percent}%`;
+    $('#splash-pct').textContent = `${percent}%`;
+  },
+  async finish() {
+    if (!this.el) return;
+    // Give the logo animation time to play (about 2 s after the page opened).
+    const wait = reducedMotion.matches ? 0 : Math.max(0, 2100 - performance.now());
+    await new Promise((resolve) => setTimeout(resolve, wait));
+    this.step('READY', 100);
+    await new Promise((resolve) => setTimeout(resolve, reducedMotion.matches ? 0 : 280));
+    this.el.classList.add('done');
+    setTimeout(() => this.el?.remove(), 900);
+  },
+};
+
 async function boot() {
+  const reloading = performance.getEntriesByType?.('navigation')?.[0]?.type === 'reload';
+  splash.step(reloading ? 'REFRESHING' : 'CONNECTING', 15);
   hydrateIcons();
   setupPlayer();
   setupShare();
@@ -1202,7 +1226,9 @@ async function boot() {
   showSkeletons();
 
   try {
+    splash.step('LOADING VOLUME WAVES', 45);
     const data = await api('/api/catalog');
+    splash.step('TUNING THE LEDS', 80);
     Object.assign(state, {
       profile: data.profile,
       categories: data.categories,
@@ -1228,6 +1254,7 @@ async function boot() {
   state.loaded = true;
   renderHome();
   route();
+  splash.finish();
 }
 
 boot();

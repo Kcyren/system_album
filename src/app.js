@@ -41,7 +41,21 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '100kb' }));
 
 // ---------------------------------------------------------------------- api
-app.get('/api/health', (req, res) => res.json({ ok: true, configured: config.configured }));
+// Setup diagnostics. Shows only WHICH settings exist (true/false), never their values.
+const EXPECTED = ['SUPABASE_URL', 'SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_SECRET_KEY', 'CREATOR_EMAIL', 'PUBLIC_URL'];
+app.get('/api/health', (req, res) => {
+  const names = Object.keys(process.env);
+  res.set('Cache-Control', 'no-store').json({
+    ok: true,
+    configured: config.configured,
+    creatorEmailSet: config.creatorEmails.length > 0,
+    settings: Object.fromEntries(EXPECTED.map((name) => [name, Boolean((process.env[name] || '').trim())])),
+    // Catches typos like "supabase_url" or "SUPABASE_URL " (extra space).
+    lookalikes: names.filter((n) => /supa|creator|public_url/i.test(n) && !EXPECTED.includes(n) && !/^SUPABASE_(SERVICE_ROLE|ANON)_KEY$|^SUPABASE_BUCKET$/.test(n)),
+    environment: process.env.VERCEL_ENV || (config.production ? 'production' : 'development'),
+    commit: (process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 7) || null,
+  });
+});
 
 app.use('/api', (req, res, next) => {
   if (config.configured) return next();

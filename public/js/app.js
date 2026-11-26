@@ -248,7 +248,9 @@ function updateLyrics(force = false) {
   if (active === player.lyricIndex && !force) return;
   player.lyricIndex = active;
   showLyricPop(track, active);
+  document.querySelectorAll('.lyrics.synced.is-live').forEach((box) => { if (box.dataset.lyrics !== track.id) box.classList.remove('is-live'); });
   document.querySelectorAll(`[data-lyrics="${track.id}"]`).forEach((box) => {
+    box.classList.add('is-live');
     box.querySelectorAll('.ly-line').forEach((line) => {
       const i = Number(line.dataset.i);
       line.classList.toggle('active', i === active);
@@ -324,7 +326,8 @@ function load(track, autoplay) {
   const isVideo = track.mediaType === 'video';
   media.src = track.mediaUrl;
   media.poster = isVideo && track.coverUrl ? track.coverUrl : '';
-  playerEl.classList.toggle('is-video', isVideo);
+  player.isVideo = isVideo;
+  applyVideoMode();
   $('#np-art').replaceChildren(artFor(track));
   startFlames($('#np-art'));
   const title = $('#np-title');
@@ -360,7 +363,7 @@ function load(track, autoplay) {
   if (!$('#queue-panel').hidden) renderQueue();
 
   // A video plays best in the big view; audio stays in the mini player.
-  if (isVideo) setExpanded(true);
+  if (isVideo && !videoOff()) setExpanded(true);
 
   if (autoplay) {
     media.play().catch(() => toast('Press play to start listening'));
@@ -501,7 +504,33 @@ function setQueueOpen(open) {
   if (open) renderQueue();
 }
 
+// --------------------------------------------------- video on / off
+// Like Spotify: listeners can hide a video and keep the music, cover & lyrics.
+const videoOff = () => Boolean(store.get('sa_video_off', false));
+
+function applyVideoMode() {
+  const showVideo = player.isVideo && !videoOff();
+  playerEl.classList.toggle('is-video', Boolean(showVideo));
+  const button = $('#btn-video');
+  button.hidden = !player.isVideo;
+  button.innerHTML = icon(videoOff() ? 'videoOff' : 'video');
+  button.setAttribute('aria-pressed', String(videoOff()));
+  button.setAttribute('aria-label', videoOff() ? 'Turn video on' : 'Turn video off (music only)');
+  button.title = videoOff() ? 'Video is off — tap to show it' : 'Music only (hide the video)';
+}
+
 function setupPlayer() {
+  $('#btn-video').addEventListener('click', () => {
+    store.set('sa_video_off', !videoOff());
+    applyVideoMode();
+    toast(videoOff() ? 'Video off — just the music' : 'Video on');
+  });
+  // Size the video box to the video's real shape (landscape or portrait).
+  media.addEventListener('loadedmetadata', () => {
+    if (media.videoWidth && media.videoHeight) playerEl.style.setProperty('--video-ar', (media.videoWidth / media.videoHeight).toFixed(4));
+    else playerEl.style.removeProperty('--video-ar');
+  });
+
   $('#btn-queue').addEventListener('click', (event) => {
     event.stopPropagation();
     setQueueOpen($('#queue-panel').hidden);
@@ -1150,15 +1179,16 @@ async function showTrack(id) {
   }
 
   const prose = h('div', { class: 'prose' });
+  const lyricsBlock = h('div', { class: 'prose lyrics-block' });
   if (track.description) prose.append(h('h3', {}, 'About this track'), h('p', {}, track.description));
   if (track.howMade) prose.append(h('h3', {}, 'How it was made'), h('p', {}, track.howMade));
   if (track.progressNote) prose.append(h('h3', {}, 'What changed / what I learned'), h('p', { class: 'note' }, track.progressNote));
   if (track.lyrics && lyricTiming(track)) {
     const box = h('div', { class: 'lyrics synced', 'data-lyrics': track.id, onclick: onLyricClick(track) }, ...lyricLines(track));
-    prose.append(h('h3', {}, 'Lyrics', track.lyricsTiming ? h('span', { class: 'synced-tag' }, 'SYNCED') : null), box);
+    lyricsBlock.append(h('h3', {}, 'Lyrics', track.lyricsTiming ? h('span', { class: 'synced-tag' }, 'SYNCED') : null), box);
   } else if (track.lyrics) {
     const lyrics = h('p', { class: 'lyrics' }, track.lyrics);
-    prose.append(h('h3', {}, 'Lyrics'), lyrics);
+    lyricsBlock.append(h('h3', {}, 'Lyrics'), lyrics);
     if (track.lyrics.split(/\r?\n/).length > 14 || track.lyrics.length > 700) {
       lyrics.classList.add('clamped');
       const toggle = h('button', { class: 'lyrics-toggle', type: 'button', 'aria-expanded': 'false' }, 'Show all lyrics');
@@ -1168,7 +1198,7 @@ async function showTrack(id) {
         toggle.textContent = open ? 'Show less' : 'Show all lyrics';
         toggle.setAttribute('aria-expanded', String(open));
       });
-      prose.append(toggle);
+      lyricsBlock.append(toggle);
     }
   }
 
@@ -1192,12 +1222,13 @@ async function showTrack(id) {
     draft ? h('div', { class: 'draft-banner' }, 'Draft preview — only you can see this. Publish it from the Creator Studio when you are ready.') : null,
     h('div', { class: 'detail' },
       art,
-      h('div', {},
+      h('div', { class: 'detail-info' },
         h('div', { class: 'tag' }, h('span', {}, track.category), h('span', {}, '·'), h('span', {}, track.mediaType === 'video' ? 'Video' : 'Audio')),
         h('h1', {}, track.title),
         meta,
         wave,
         actions,
+        lyricsBlock.childNodes.length ? lyricsBlock : null,
         prose,
         shareRow,
       ),

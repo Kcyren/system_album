@@ -12,22 +12,39 @@ const TRACK_FIELDS =
 let featureCache = null;
 async function schemaFeatures() {
   const cached = featureCache;
-  if (cached && ((cached.value.v2 && cached.value.stats && cached.value.v3 && cached.value.v4) || Date.now() - cached.at < 60 * 1000)) return cached.value;
-  const [tracksCheck, statsCheck, v3Check, v4Check] = await Promise.all([
+  if (cached && ((cached.value.v2 && cached.value.stats && cached.value.v3 && cached.value.v4 && cached.value.v6) || Date.now() - cached.at < 60 * 1000)) return cached.value;
+  const [tracksCheck, statsCheck, v3Check, v4Check, v6Check] = await Promise.all([
     db.from('tracks').select('lyrics,waveform').limit(1),
     db.from('play_daily').select('day').limit(1),
     db.from('profile').select('featured_track_id').limit(1).then(async (r) => (r.error ? r : db.from('tracks').select('announced_at').limit(1))),
     db.from('shoutouts').select('id').limit(1).then(async (r) => (r.error ? r : db.from('tracks').select('lyrics_timing').limit(1)))
       .then(async (r) => (r.error ? r : db.from('listeners').select('visitor').limit(1))),
+    db.from('tracks').select('edit').limit(1),
   ]);
-  const value = { v2: !tracksCheck.error, stats: !statsCheck.error, v3: !v3Check.error, v4: !v4Check.error };
+  const value = { v2: !tracksCheck.error, stats: !statsCheck.error, v3: !v3Check.error, v4: !v4Check.error, v6: !v6Check.error };
   featureCache = { value, at: Date.now() };
   return value;
 }
 
 async function trackFields() {
-  const { v2, v3, v4 } = await schemaFeatures();
-  return TRACK_FIELDS + (v2 ? ',lyrics,waveform' : '') + (v3 ? ',announced_at' : '') + (v4 ? ',lyrics_timing' : '');
+  const { v2, v3, v4, v6 } = await schemaFeatures();
+  return TRACK_FIELDS + (v2 ? ',lyrics,waveform' : '') + (v3 ? ',announced_at' : '') + (v4 ? ',lyrics_timing' : '') + (v6 ? ',edit' : '');
+}
+
+// Length of a track after trimming/cutting (see public/js/edits.js).
+function editedLength(edit, raw) {
+  if (!edit || !Number.isFinite(raw)) return raw;
+  const start = Math.max(0, Number(edit.start) || 0);
+  const end = Math.min(edit.end == null ? raw : Number(edit.end), raw);
+  if (!(end > start)) return raw;
+  let removed = 0;
+  let t = start;
+  const cuts = (edit.cuts || []).map(([a, b]) => [Math.max(a, start), Math.min(b, end)]).filter(([a, b]) => b > a).sort((x, y) => x[0] - y[0]);
+  for (const [a, b] of cuts) {
+    if (b > t) removed += b - Math.max(a, t);
+    t = Math.max(t, b);
+  }
+  return Math.max(0, end - start - removed);
 }
 
 function mapTrack(row, reactionTotals = {}) {
@@ -49,7 +66,9 @@ function mapTrack(row, reactionTotals = {}) {
     recordedTime: row.recorded_time ? row.recorded_time.slice(0, 5) : null,
     album: row.album ? { id: row.album.id, title: row.album.title } : null,
     albumPosition: row.album_position,
-    duration: row.duration_seconds,
+    duration: row.edit ? editedLength(row.edit, row.duration_seconds) : row.duration_seconds,
+    rawDuration: row.duration_seconds,
+    edit: row.edit ?? null,
     status: row.status,
     plays: Number(row.plays) || 0,
     reactions: { fire: reactionTotals[row.id]?.fire || 0, heart: reactionTotals[row.id]?.heart || 0 },

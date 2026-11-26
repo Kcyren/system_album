@@ -1,4 +1,5 @@
 import { icon, hydrateIcons, h, formatDuration, formatDate, plural, artFor, trackCard } from './ui.js';
+import { editMap } from './edits.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const S = { email: null, tracks: [], albums: [], categories: [], profile: null, milestones: [], features: {}, tab: 'overview' };
@@ -225,6 +226,30 @@ async function computeWaveform(source, bars = 120) {
     return levels.map((v) => Math.round((v / peak) * 100));
   } catch (error) {
     console.warn('Waveform could not be created', error);
+    return null;
+  }
+}
+
+// Detailed loudness bars + length, for the trim & cut editor.
+async function decodePeaks(source, bars = 900) {
+  const AudioCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!AudioCtx) return null;
+  try {
+    const buffer = source instanceof Blob ? await source.arrayBuffer() : await fetch(source).then((r) => r.arrayBuffer());
+    const audio = await new AudioCtx(1, 1, 44100).decodeAudioData(buffer);
+    const data = audio.getChannelData(0);
+    const block = Math.max(1, Math.floor(data.length / bars));
+    const stride = Math.max(1, Math.floor(block / 200));
+    const peaks = [];
+    for (let b = 0; b < bars; b += 1) {
+      let max = 0;
+      for (let i = b * block; i < (b + 1) * block && i < data.length; i += stride) max = Math.max(max, Math.abs(data[i]));
+      peaks.push(max);
+    }
+    const top = Math.max(...peaks) || 1;
+    return { peaks: peaks.map((p) => p / top), duration: audio.duration };
+  } catch (error) {
+    console.warn('Could not read audio for trimming', error);
     return null;
   }
 }
@@ -517,6 +542,9 @@ function trackEditor(track) {
   const progressNote = textarea({ maxlength: 1000, placeholder: 'What changed compared to before? What did you learn?' }, track?.progressNote);
   const lyrics = textarea({ maxlength: 10000, rows: 8, placeholder: 'Your bars, line by line', disabled: !S.features.lyrics }, track?.lyrics);
   let timing = Array.isArray(track?.lyricsTiming) ? [...track.lyricsTiming] : null;
+  let edit = track?.edit ? JSON.parse(JSON.stringify(track.edit)) : null;
+  let editTouched = false;
+  let trimReset = null; // set by the trim tool; resets it when a new file is chosen
   let timingTouched = false;
   const date = input({ type: 'date', value: track?.recordedDate || '' });
   const time = input({ type: 'time', value: track?.recordedTime || '' });
@@ -596,7 +624,11 @@ function trackEditor(track) {
       coverUrl: cover.previewUrl(),
       description: description.value.trim(),
       recordedDate: date.value || null,
-      duration: duration || track?.duration || null,
+      duration: (() => {
+        const raw = duration || track?.rawDuration || track?.duration || null;
+        const map = edit && raw ? editMap(edit, raw) : null;
+        return map ? map.length : raw;
+      })(),
       plays: track?.plays || 0,
       publishedAt: track?.publishedAt || new Date().toISOString(),
     };
@@ -612,6 +644,11 @@ function trackEditor(track) {
       return;
     }
     if (localMediaUrl) URL.revokeObjectURL(localMediaUrl);
+    if (edit) {
+      edit = null;
+      editTouched = true;
+    }
+    trimReset?.();
     localMediaUrl = chosen ? URL.createObjectURL(chosen) : null;
     duration = null;
     wavePromise = chosen && S.features.waveform ? computeWaveform(chosen) : null;
@@ -658,6 +695,7 @@ function trackEditor(track) {
         status: nextStatus,
       };
       if (S.features.lyrics) body.lyrics = lyrics.value;
+      if (S.features.edits && editTouched) body.edit = edit;
       if (S.features.syncedLyrics) {
         const lineCount = lyrics.value.split(/\r?\n/).length;
         if (timingTouched) body.lyricsTiming = timing && timing.length === lineCount && timing.some((t) => t !== null) ? timing : null;
@@ -716,6 +754,7 @@ function trackEditor(track) {
       hint: 'MP3, M4A, WAV, OGG, FLAC, MP4, WEBM or MOV. Keep files under your storage plan limit (50 MB on Supabase Free).',
     }),
     fileInfo,
+    trimTool(),
     cover.el,
     field('About this track', description, { optional: true }),
     field('How it was made', howMade, { optional: true }),
@@ -734,6 +773,244 @@ function trackEditor(track) {
     h('div', { class: 'panel' }, h('h3', {}, 'Listen back'), h('p', { class: 'muted small' }, 'Check your recording before you publish.'), mediaPreview, waveTools()),
     h('div', { class: 'panel' }, h('h3', {}, 'Card preview'), h('p', { class: 'muted small' }, 'How it will look on the site.'), cardPreview),
   );
+
+  // ---------------------------------------------------------- trim & cut
+  // Non-destructive: saves start/end/cuts/fades; the original file stays as it is.
+  function trimTool() {
+    if (!S.features.edits) return null;
+    const wrap = h('div', { class: 'trim-tool' });
+    const fmt = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+
+    function intro() {
+      const map = edit && (track?.rawDuration || duration) ? editMap(edit, track?.rawDuration || duration) : null;
+      wrap.replaceChildren(
+        h('button', { class: 'btn small', type: 'button', onclick: open }, edit ? '✂️ Edited — change trim & cuts' : '✂️ Trim & cut'),
+        h('p', { class: 'hint' }, map
+          ? `Plays ${formatDuration(map.length)} of ${formatDuration(track?.rawDuration || duration)}. The original recording is kept, so you can undo any time.`
+          : 'Cut silence at the start or end, or remove a part in the middle. Nothing is deleted — you can undo any time.'),
+      );
+    }
+    trimReset = intro;
+
+    async function open() {
+      const src = localMediaUrl || track?.mediaUrl;
+      if (!src) return toast('Choose the audio or video file first.');
+      wrap.replaceChildren(h('p', { class: 'hint' }, 'Reading the recording…'));
+      const decoded = await decodePeaks(mediaFile.files[0] || src);
+      if (!decoded) {
+        wrap.replaceChildren(h('p', { class: 'hint' }, "Your browser couldn't read this file for editing. Try Chrome or Edge."));
+        return;
+      }
+      build(decoded, src);
+    }
+
+    function build({ peaks, duration: total }, src) {
+      const state = {
+        start: edit?.start ?? 0,
+        end: edit?.end ?? total,
+        cuts: (edit?.cuts || []).map((c) => [...c]),
+        fadeIn: edit?.fadeIn || 0,
+        fadeOut: edit?.fadeOut || 0,
+        sel: null, // [a, b] selection for cutting
+        drag: null,
+      };
+      const audio = h('audio', { src, preload: 'auto' });
+      const canvas = h('canvas', { class: 'trim-canvas', 'aria-label': 'Waveform. Drag the handles to trim, drag across to select a part to cut.' });
+      const startIn = input({ type: 'number', min: '0', step: '0.1', 'aria-label': 'Start (seconds)' });
+      const endIn = input({ type: 'number', min: '0', step: '0.1', 'aria-label': 'End (seconds)' });
+      const fadeSel = (value) => select([['0', 'None'], ['1', '1 s'], ['2', '2 s'], ['3', '3 s'], ['5', '5 s']], String(value));
+      const fadeInSel = fadeSel(state.fadeIn);
+      const fadeOutSel = fadeSel(state.fadeOut);
+      const info = h('p', { class: 'trim-info', role: 'status' });
+      const cutList = h('ul', { class: 'trim-cuts' });
+      const playBtn = h('button', { class: 'btn small primary', type: 'button' }, '▶ Preview');
+      const cutBtn = h('button', { class: 'btn small', type: 'button', disabled: true }, '✂️ Cut selection');
+
+      const r2 = (n) => Math.round(n * 100) / 100;
+      const currentEdit = () => ({ start: r2(state.start), end: state.end >= total - 0.05 ? null : r2(state.end), cuts: state.cuts.map(([a, b]) => [r2(a), r2(b)]), fadeIn: state.fadeIn, fadeOut: state.fadeOut });
+      const isUnchanged = () => state.start < 0.05 && state.end >= total - 0.05 && !state.cuts.length && !state.fadeIn && !state.fadeOut;
+      const commit = () => {
+        edit = isUnchanged() ? null : currentEdit();
+        editTouched = true;
+        updateCard();
+      };
+
+      // ---- drawing
+      function draw() {
+        const dpr = Math.min(2, devicePixelRatio || 1);
+        const w = canvas.clientWidth || 600;
+        const hgt = canvas.clientHeight || 110;
+        canvas.width = Math.round(w * dpr);
+        canvas.height = Math.round(hgt * dpr);
+        const g = canvas.getContext('2d');
+        g.setTransform(dpr, 0, 0, dpr, 0, 0);
+        g.clearRect(0, 0, w, hgt);
+        const x = (t) => (t / total) * w;
+        const barW = w / peaks.length;
+        const mid = hgt / 2;
+        peaks.forEach((p, i) => {
+          const t = ((i + 0.5) / peaks.length) * total;
+          const kept = t >= state.start && t <= state.end && !state.cuts.some(([a, b]) => t >= a && t <= b);
+          g.fillStyle = kept ? '#5b86ff' : '#3a4767';
+          const bh = Math.max(1.5, p * (hgt - 16));
+          g.fillRect(i * barW, mid - bh / 2, Math.max(1, barW - 0.6), bh);
+        });
+        // trimmed-off ends
+        g.fillStyle = 'rgba(5,5,16,.62)';
+        g.fillRect(0, 0, x(state.start), hgt);
+        g.fillRect(x(state.end), 0, w - x(state.end), hgt);
+        // cuts
+        for (const [a, b] of state.cuts) {
+          g.fillStyle = 'rgba(255,80,80,.22)';
+          g.fillRect(x(a), 0, x(b) - x(a), hgt);
+          g.strokeStyle = 'rgba(255,120,120,.8)';
+          g.strokeRect(x(a) + 0.5, 0.5, x(b) - x(a) - 1, hgt - 1);
+        }
+        // selection
+        if (state.sel) {
+          const [a, b] = [Math.min(...state.sel), Math.max(...state.sel)];
+          g.fillStyle = 'rgba(160,190,255,.25)';
+          g.fillRect(x(a), 0, x(b) - x(a), hgt);
+        }
+        // handles
+        for (const t of [state.start, state.end]) {
+          g.fillStyle = '#ffffff';
+          g.fillRect(x(t) - 1.5, 0, 3, hgt);
+          g.beginPath();
+          g.roundRect ? g.roundRect(x(t) - 6, mid - 14, 12, 28, 4) : g.rect(x(t) - 6, mid - 14, 12, 28);
+          g.fill();
+        }
+        // playhead
+        g.fillStyle = '#ffd36b';
+        g.fillRect(x(audio.currentTime) - 1, 0, 2, hgt);
+      }
+
+      function refresh() {
+        startIn.value = state.start.toFixed(1);
+        endIn.value = state.end.toFixed(1);
+        const map = editMap(currentEdit(), total);
+        info.textContent = `Original ${formatDuration(total)} → final ${formatDuration(map ? map.length : total)}${map && total - map.length >= 0.1 ? ` (${(total - map.length).toFixed(1)} s removed)` : ''}`;
+        cutList.replaceChildren(...state.cuts.map((c, i) => h('li', {},
+          `Cut ${fmt(c[0])} – ${fmt(c[1])}`,
+          h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Undo this cut', html: icon('close'), onclick: () => { state.cuts.splice(i, 1); commit(); refresh(); } }))));
+        cutBtn.disabled = !state.sel || Math.abs(state.sel[1] - state.sel[0]) < 0.2;
+        draw();
+      }
+
+      // ---- mouse / touch on the waveform
+      const timeAt = (event) => {
+        const r = canvas.getBoundingClientRect();
+        return Math.min(total, Math.max(0, ((event.clientX - r.left) / r.width) * total));
+      };
+      canvas.addEventListener('pointerdown', (event) => {
+        const t = timeAt(event);
+        const px = (sec) => (sec / total) * canvas.getBoundingClientRect().width;
+        const near = (sec) => Math.abs(px(sec) - px(t)) < 12;
+        state.drag = near(state.start) ? 'start' : near(state.end) ? 'end' : 'select';
+        if (state.drag === 'select') state.sel = [t, t];
+        canvas.setPointerCapture(event.pointerId);
+        refresh();
+      });
+      canvas.addEventListener('pointermove', (event) => {
+        if (!state.drag) return;
+        const t = timeAt(event);
+        if (state.drag === 'start') state.start = Math.min(t, state.end - 0.5);
+        else if (state.drag === 'end') state.end = Math.max(t, state.start + 0.5);
+        else state.sel[1] = t;
+        refresh();
+      });
+      canvas.addEventListener('pointerup', (event) => {
+        const kind = state.drag;
+        state.drag = null;
+        if (kind === 'select' && Math.abs(state.sel[1] - state.sel[0]) < 0.2) {
+          audio.currentTime = timeAt(event); // a simple click moves the playhead
+          state.sel = null;
+        }
+        if (kind === 'start' || kind === 'end') commit();
+        refresh();
+      });
+
+      // ---- buttons and inputs
+      cutBtn.addEventListener('click', () => {
+        const [a, b] = [Math.min(...state.sel), Math.max(...state.sel)];
+        state.cuts.push([Math.round(a * 100) / 100, Math.round(b * 100) / 100]);
+        state.sel = null;
+        commit();
+        refresh();
+        toast('Part cut out. Press Preview to hear it.');
+      });
+      const setFromInput = (which, el) => el.addEventListener('change', () => {
+        const v = Math.min(total, Math.max(0, Number(el.value) || 0));
+        if (which === 'start') state.start = Math.min(v, state.end - 0.5);
+        else state.end = Math.max(v, state.start + 0.5);
+        commit();
+        refresh();
+      });
+      setFromInput('start', startIn);
+      setFromInput('end', endIn);
+      fadeInSel.addEventListener('change', () => { state.fadeIn = Number(fadeInSel.value); commit(); refresh(); });
+      fadeOutSel.addEventListener('change', () => { state.fadeOut = Number(fadeOutSel.value); commit(); refresh(); });
+
+      // Preview plays the edited version (skips cuts, applies fades)
+      let raf = 0;
+      const loop = () => {
+        const map = editMap(currentEdit(), total);
+        if (map && !audio.paused) {
+          const jump = map.jump(audio.currentTime);
+          if (jump === 'end') { audio.pause(); audio.currentTime = map.start; }
+          else if (jump !== null) audio.currentTime = jump;
+          audio.volume = map.gain(audio.currentTime);
+        }
+        draw();
+        if (!audio.paused) raf = requestAnimationFrame(loop);
+      };
+      playBtn.addEventListener('click', () => {
+        if (audio.paused) {
+          const map = editMap(currentEdit(), total);
+          if (map && (audio.currentTime < map.start || audio.currentTime >= map.end - 0.05)) audio.currentTime = map.start;
+          audio.play().catch(() => {});
+        } else audio.pause();
+      });
+      audio.addEventListener('play', () => { playBtn.textContent = '⏸ Pause'; cancelAnimationFrame(raf); raf = requestAnimationFrame(loop); });
+      audio.addEventListener('pause', () => { playBtn.textContent = '▶ Preview'; audio.volume = 1; draw(); });
+
+      wrap.replaceChildren(h('div', { class: 'trim-panel' },
+        h('div', { class: 'trim-head' }, h('b', {}, '✂️ Trim & cut'), info),
+        canvas,
+        h('p', { class: 'hint' }, 'Drag the white handles to trim the start and end. Drag across the waveform to select a part, then press “Cut selection”. Click to move the yellow playhead.'),
+        h('div', { class: 'form-actions' },
+          playBtn,
+          h('button', { class: 'btn small', type: 'button', onclick: () => { state.start = audio.currentTime < state.end - 0.5 ? audio.currentTime : state.start; commit(); refresh(); } }, 'Start here'),
+          h('button', { class: 'btn small', type: 'button', onclick: () => { state.end = audio.currentTime > state.start + 0.5 ? audio.currentTime : state.end; commit(); refresh(); } }, 'End here'),
+          cutBtn),
+        h('div', { class: 'trim-grid' },
+          h('label', {}, 'Start (s)', startIn),
+          h('label', {}, 'End (s)', endIn),
+          h('label', {}, 'Fade in', fadeInSel),
+          h('label', {}, 'Fade out', fadeOutSel)),
+        cutList,
+        h('div', { class: 'form-actions' },
+          h('button', {
+            class: 'btn small danger', type: 'button',
+            onclick: () => {
+              Object.assign(state, { start: 0, end: total, cuts: [], fadeIn: 0, fadeOut: 0, sel: null });
+              fadeInSel.value = '0';
+              fadeOutSel.value = '0';
+              commit();
+              refresh();
+              toast('Back to the original recording');
+            },
+          }, 'Undo all edits'),
+          h('button', { class: 'btn small', type: 'button', onclick: () => { audio.pause(); intro(); } }, 'Done')),
+        h('p', { class: 'hint' }, 'Edits are saved when you press Publish / Save changes.'),
+        audio));
+      new ResizeObserver(draw).observe(canvas);
+      refresh();
+    }
+
+    intro();
+    return wrap;
+  }
 
   // Karaoke timing: play the track and tap as each line starts.
   function syncTool() {

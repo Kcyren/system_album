@@ -46,6 +46,10 @@ const fail = (msg) => {
   if (v5) fail('Update 005 not installed (shared spam protection) — run supabase/migrations/005_shared_rate_limits.sql');
   else ok('Update 005 installed (shared spam protection)');
 
+  const { error: v6 } = await db.from('tracks').select('edit').limit(1);
+  if (v6) fail('Update 006 not installed (trim & cut) — run supabase/migrations/006_track_edits.sql');
+  else ok('Update 006 installed (trim & cut)');
+
   if (config.resendApiKey && config.emailFrom) ok(`New-release emails: on (from ${config.emailFrom})`);
   else console.log('  · New-release emails: off (optional — add RESEND_API_KEY and EMAIL_FROM)');
 

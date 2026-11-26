@@ -1,7 +1,7 @@
 // Surgthflur - Music service worker: makes the site installable and keeps the
 // app shell available offline. Music/video and API data always come from
 // the network so visitors never see stale tracks or fake numbers.
-const VERSION = 'sa-v6';
+const VERSION = 'sa-v7';
 const SHELL = [
   '/',
   '/css/site.css',
@@ -9,6 +9,7 @@ const SHELL = [
   '/js/ui.js',
   '/js/fx.js',
   '/js/story.js',
+  '/js/edits.js',
   '/brand/logo-mark.svg',
   '/brand/logo-animated.svg',
   '/brand/wordmark-animated.svg',

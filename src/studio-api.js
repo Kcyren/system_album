@@ -117,6 +117,7 @@ router.get('/features', async (req, res) => {
   res.json({
     shoutouts: v4,
     syncedLyrics: v4,
+    edits: (await schemaFeatures()).v6,
     lyrics: v2,
     waveform: v2,
     stats,
@@ -234,6 +235,17 @@ async function trackInput(body, existing) {
     else if (Array.isArray(wave) && wave.length <= 400 && wave.every((n) => Number.isInteger(n) && n >= 0 && n <= 100)) out.waveform = wave;
     else throw bad('Waveform data is not valid.');
   }
+  if (has('edit') && body.edit !== undefined && (await schemaFeatures()).v6) {
+    const e = body.edit;
+    const num = (n, max = 36000) => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= max;
+    if (e === null) out.edit = null;
+    else if (e && typeof e === 'object' && num(e.start) && (e.end === null || num(e.end)) && (e.end === null || e.end > e.start)
+      && Array.isArray(e.cuts) && e.cuts.length <= 30 && e.cuts.every((c) => Array.isArray(c) && c.length === 2 && num(c[0]) && num(c[1]) && c[1] > c[0])
+      && num(e.fadeIn ?? 0, 10) && num(e.fadeOut ?? 0, 10)) {
+      const r = (n) => Math.round(n * 100) / 100;
+      out.edit = { start: r(e.start), end: e.end === null ? null : r(e.end), cuts: e.cuts.map(([a, b]) => [r(a), r(b)]), fadeIn: r(e.fadeIn || 0), fadeOut: r(e.fadeOut || 0) };
+    } else throw bad('The trim/cut settings are not valid.');
+  }
   if (has('lyricsTiming') && body.lyricsTiming !== undefined && (await schemaFeatures()).v4) {
     const timing = body.lyricsTiming;
     if (timing === null) out.lyrics_timing = null;
@@ -249,6 +261,8 @@ async function trackInput(body, existing) {
   }
   // A new recording makes the old waveform wrong.
   if (v2 && existing && out.media_path && !('waveform' in out)) out.waveform = null;
+  // ...and old trims/cuts no longer fit a new recording.
+  if (existing && out.media_path && !('edit' in out) && (await schemaFeatures()).v6) out.edit = null;
   return out;
 }
 

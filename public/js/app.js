@@ -1,6 +1,7 @@
 import { icon, hydrateIcons, h, formatDuration, formatDate, formatTime, plural, artFor, trackCard, waveform } from './ui.js';
 import { initFx, fxGesture, watchLeds } from './fx.js';
 import { makeStoryCard } from './story.js';
+import { editMap, editedPeaks } from './edits.js';
 
 const $ = (selector) => document.querySelector(selector);
 const LATEST_COUNT = 4;
@@ -83,7 +84,35 @@ const saveData = () => Boolean(navigator.connection?.saveData);
 // ================================================================ player
 const media = $('#media');
 const playerEl = $('#player');
-const player = { queue: [], index: -1, track: null, listened: 0, lastTime: 0, counted: false, pendingSeek: null, lyricIndex: -2 };
+const player = { queue: [], index: -1, track: null, listened: 0, lastTime: 0, counted: false, pendingSeek: null, pendingRaw: null, lyricIndex: -2, edit: null, editRaf: 0, userVolume: 1 };
+
+// ------------------------------------------------- trim & cut (edits.js)
+// Times shown to listeners are "edited" times; the file itself is untouched.
+const playLength = () => (player.edit ? player.edit.length : media.duration);
+const playPosition = () => (player.edit ? player.edit.toVirtual(media.currentTime) : media.currentTime);
+const toFileTime = (fraction) => (player.edit ? player.edit.toRaw(fraction * player.edit.length) : fraction * media.duration);
+
+// While playing an edited track: skip cut parts, stop at the trimmed end, apply fades.
+function editLoop() {
+  player.editRaf = 0;
+  if (!player.edit || media.paused) return;
+  const jump = player.edit.jump(media.currentTime);
+  if (jump === 'end') {
+    media.pause();
+    media.currentTime = player.edit.end;
+    media.volume = player.userVolume;
+    onTrackEnd();
+    return;
+  }
+  if (jump !== null) media.currentTime = jump;
+  media.volume = player.userVolume * player.edit.gain(media.currentTime);
+  player.editRaf = requestAnimationFrame(editLoop);
+}
+
+function onTrackEnd() {
+  // Next track in the queue, otherwise stay put showing the end (press play to replay).
+  if (player.index < player.queue.length - 1) step(1);
+}
 
 function setPlayIcon(button, playing) {
   button.innerHTML = icon(playing ? 'pause' : 'play');
@@ -99,19 +128,20 @@ function playTrack(track, queue, at = null) {
     return;
   }
   player.pendingSeek = at;
+  player.pendingRaw = null;
   player.queue = queue?.length ? queue : [track];
   player.index = Math.max(0, player.queue.findIndex((t) => t.id === track.id));
   load(player.queue[player.index], true);
 }
 
 function seekTo(fraction) {
-  if (media.duration) media.currentTime = fraction * media.duration;
+  if (media.duration) media.currentTime = toFileTime(fraction);
   if (media.paused) media.play().catch(() => {});
 }
 
 function updateWaves() {
-  if (!player.track || !media.duration) return;
-  const fraction = media.currentTime / media.duration;
+  if (!player.track || !media.duration || !playLength()) return;
+  const fraction = playPosition() / playLength();
   document.querySelectorAll(`.wave[data-wave="${player.track.id}"]`).forEach((el) => el.setProgress(fraction));
 }
 
@@ -128,7 +158,8 @@ function seekToLyric(track, seconds) {
     media.currentTime = seconds;
     if (media.paused) media.play().catch(() => {});
   } else {
-    playTrack(track, [track], track.duration ? Math.min(0.999, seconds / track.duration) : null);
+    playTrack(track, [track]);
+    player.pendingRaw = seconds; // lyric times are real file times
   }
 }
 
@@ -213,6 +244,9 @@ addEventListener('pagehide', () => {
 
 function load(track, autoplay) {
   player.track = track;
+  player.edit = editMap(track.edit, track.rawDuration);
+  cancelAnimationFrame(player.editRaf);
+  media.volume = player.userVolume;
   player.lyricIndex = -2;
   player.listened = 0;
   player.lastTime = 0;
@@ -231,7 +265,7 @@ function load(track, autoplay) {
   wave.hidden = !track.waveform;
   wave.replaceChildren();
   if (track.waveform) {
-    const el = waveform(track.waveform, { onSeek: seekTo });
+    const el = waveform(editedPeaks(track.waveform, player.edit, track.rawDuration), { onSeek: seekTo });
     el.dataset.wave = track.id;
     wave.append(el);
   }
@@ -274,6 +308,7 @@ function step(direction) {
   }
   if (next < 0 || next >= player.queue.length) return;
   player.pendingSeek = null;
+  player.pendingRaw = null;
   player.index = next;
   load(player.queue[next], true);
 }
@@ -373,8 +408,9 @@ function setupPlayer() {
     media.muted = !media.muted;
   });
   volume.addEventListener('input', () => {
-    media.volume = volume.value / 100;
-    media.muted = media.volume === 0;
+    player.userVolume = volume.value / 100;
+    media.volume = player.userVolume;
+    media.muted = player.userVolume === 0;
     setFill(volume);
   });
   setFill(volume);
@@ -382,14 +418,20 @@ function setupPlayer() {
   seek.addEventListener('input', () => {
     seeking = true;
     setFill(seek);
-    if (media.duration) $('#t-cur').textContent = formatDuration((seek.value / 1000) * media.duration);
+    if (media.duration) $('#t-cur').textContent = formatDuration((seek.value / 1000) * playLength());
   });
   seek.addEventListener('change', () => {
-    if (media.duration) media.currentTime = (seek.value / 1000) * media.duration;
+    if (media.duration) media.currentTime = toFileTime(seek.value / 1000);
     seeking = false;
   });
 
   media.addEventListener('play', () => {
+    if (player.edit) {
+      // Replaying from the trimmed end starts again from the trimmed start.
+      if (media.currentTime >= player.edit.end - 0.05) media.currentTime = player.edit.start;
+      cancelAnimationFrame(player.editRaf);
+      player.editRaf = requestAnimationFrame(editLoop);
+    }
     startLive();
     setPlayIcon($('#btn-play'), true);
     document.body.classList.add('is-playing');
@@ -402,10 +444,18 @@ function setupPlayer() {
     markCurrent();
   });
   media.addEventListener('loadedmetadata', () => {
-    $('#t-dur').textContent = formatDuration(media.duration);
-    if (player.pendingSeek !== null) {
-      media.currentTime = player.pendingSeek * media.duration;
+    // If the length wasn't known when the edit was saved, use the real one now.
+    if (player.track?.edit && !player.track.rawDuration) player.edit = editMap(player.track.edit, media.duration);
+    $('#t-dur').textContent = formatDuration(playLength());
+    if (player.pendingRaw !== null) {
+      media.currentTime = player.pendingRaw;
+      player.pendingRaw = null;
       player.pendingSeek = null;
+    } else if (player.pendingSeek !== null) {
+      media.currentTime = toFileTime(player.pendingSeek);
+      player.pendingSeek = null;
+    } else if (player.edit && media.currentTime < player.edit.start) {
+      media.currentTime = player.edit.start;
     }
   });
   media.addEventListener('timeupdate', () => {
@@ -417,21 +467,22 @@ function setupPlayer() {
       countPlay(player.track);
     }
     if (!seeking && media.duration) {
-      seek.value = Math.round((media.currentTime / media.duration) * 1000);
+      seek.value = Math.round((playPosition() / playLength()) * 1000) || 0;
       setFill(seek);
-      $('#t-cur').textContent = formatDuration(media.currentTime);
+      $('#t-cur').textContent = formatDuration(playPosition());
     }
     updateWaves();
     updateLyrics();
   });
+  let muteIcon = '';
   media.addEventListener('volumechange', () => {
-    $('#btn-mute').innerHTML = icon(media.muted || media.volume === 0 ? 'mute' : 'volume');
+    const name = media.muted || player.userVolume === 0 ? 'mute' : 'volume'; // fades don't flip the icon
+    if (name === muteIcon) return;
+    muteIcon = name;
+    $('#btn-mute').innerHTML = icon(name);
     $('#btn-mute').setAttribute('aria-label', media.muted ? 'Unmute' : 'Mute');
   });
-  media.addEventListener('ended', () => {
-    // Next track in the queue, otherwise stay put showing the end (press play to replay).
-    if (player.index < player.queue.length - 1) step(1);
-  });
+  media.addEventListener('ended', onTrackEnd);
   media.addEventListener('error', () => {
     if (!player.track) return;
     playerEl.classList.remove('is-video'); // show the artwork instead of a black box
@@ -920,7 +971,7 @@ async function showTrack(id) {
 
   let wave = null;
   if (track.waveform) {
-    wave = waveform(track.waveform, {
+    wave = waveform(editedPeaks(track.waveform, editMap(track.edit, track.rawDuration), track.rawDuration), {
       label: `Seek in ${track.title}`,
       onSeek: (fraction) => playTrack(track, queue.some((t) => t.id === track.id) ? queue : [track], fraction),
     });

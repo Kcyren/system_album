@@ -36,7 +36,7 @@ const studioCsp = csp
 
 app.use((req, res, next) => {
   res.set({
-    'Content-Security-Policy': req.path === '/studio' ? studioCsp : csp,
+    'Content-Security-Policy': req.path === '/studio' || req.path === '/js/asr-worker.js' || req.path.startsWith('/vendor/') ? studioCsp : csp,
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',

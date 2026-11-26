@@ -50,6 +50,10 @@ const fail = (msg) => {
   if (v6) fail('Update 006 not installed (trim & cut) — run supabase/migrations/006_track_edits.sql');
   else ok('Update 006 installed (trim & cut)');
 
+  const { error: v7 } = await db.from('tracks').select('lyrics_ends').limit(1);
+  if (v7) fail('Update 007 not installed (lyric end times) — run supabase/migrations/007_lyrics_ends.sql');
+  else ok('Update 007 installed (lyric end times)');
+
   if (config.resendApiKey && config.emailFrom) ok(`New-release emails: on (from ${config.emailFrom})`);
   else console.log('  · New-release emails: off (optional — add RESEND_API_KEY and EMAIL_FROM)');
 

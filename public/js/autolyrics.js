@@ -2,35 +2,19 @@
 // (Transformers.js). Nothing is uploaded anywhere and there is no API key.
 // The model (~80 MB) downloads the first time and is cached afterwards.
 
-const LIB = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2';
-const MODEL = 'Xenova/whisper-base.en';
+// The model runs in a background worker (asr-worker.js), so the page never freezes.
 
-let asrPromise = null;
-
-function loadModel(onProgress) {
-  if (!asrPromise) {
-    asrPromise = (async () => {
-      const { pipeline, env } = await import(LIB);
-      env.allowLocalModels = false;
-      return pipeline('automatic-speech-recognition', MODEL, {
-        dtype: 'q8',
-        progress_callback: (p) => {
-          if (p.status === 'progress' && p.total > 2e6) onProgress?.({ stage: 'download', pct: Math.round(p.progress || 0) });
-        },
-      });
-    })().catch((error) => {
-      asrPromise = null;
-      throw error;
-    });
-  }
-  return asrPromise;
+let worker = null;
+function getWorker() {
+  if (!worker) worker = new Worker('/js/asr-worker.js', { type: 'module' });
+  return worker;
 }
 
 // Whisper needs mono audio at 16 kHz.
 async function decode16k(source) {
   const buffer = source instanceof Blob ? await source.arrayBuffer() : await fetch(source).then((r) => r.arrayBuffer());
   const audio = await new OfflineAudioContext(1, 1, 16000).decodeAudioData(buffer);
-  if (audio.numberOfChannels === 1) return audio.getChannelData(0);
+  if (audio.numberOfChannels === 1) return audio.getChannelData(0).slice();
   const mono = new Float32Array(audio.length);
   for (let c = 0; c < audio.numberOfChannels; c += 1) {
     const data = audio.getChannelData(c);
@@ -40,38 +24,62 @@ async function decode16k(source) {
 }
 
 // Listens to the recording. Returns { text, words: [{ text, start, end }], duration }.
-export async function transcribe(source, onProgress) {
-  const asr = await loadModel(onProgress);
+export async function transcribe(source, onProgress, language = 'auto') {
   onProgress?.({ stage: 'decode' });
   const audio = await decode16k(source);
   const duration = audio.length / 16000;
-  onProgress?.({ stage: 'listen', seconds: duration });
-  const options = { chunk_length_s: 30, stride_length_s: 5 };
-  let out;
-  let segmentsOnly = false;
-  try {
-    out = await asr(audio, { ...options, return_timestamps: 'word' });
-  } catch {
-    out = await asr(audio, { ...options, return_timestamps: true }); // sentence-level fallback
-    segmentsOnly = true;
-  }
+  const out = await new Promise((resolve, reject) => {
+    const w = getWorker();
+    w.onmessage = ({ data }) => {
+      if (data.type === 'progress') onProgress?.({ ...data, seconds: duration });
+      else if (data.type === 'result') resolve(data);
+      else if (data.type === 'error') reject(new Error(data.message));
+    };
+    w.onerror = (event) => reject(new Error(event.message || 'The listening tool could not start.'));
+    let device;
+    try { device = localStorage.getItem('sa_asr_device') || undefined; } catch { device = undefined; } // 'wasm' forces CPU mode
+    w.postMessage({ audio, language, device }, [audio.buffer]);
+  });
   const words = [];
-  for (const chunk of out.chunks || []) {
+  for (const chunk of out.chunks) {
     const [start, endRaw] = chunk.timestamp || [];
     if (!Number.isFinite(start)) continue;
     const end = Number.isFinite(endRaw) ? endRaw : start + 0.4;
     const parts = chunk.text.trim().split(/\s+/).filter(Boolean);
-    if (!segmentsOnly) {
+    if (!out.segmentsOnly) {
       if (parts.length) words.push({ text: chunk.text.trim(), start, end });
     } else {
       parts.forEach((text, i) => words.push({ text, start: start + ((end - start) * i) / parts.length, end }));
     }
   }
-  return { text: (out.text || '').trim(), words, duration };
+  const clean = cleanWords(words);
+  return { text: clean.map((w) => w.text).join(' '), words: clean, duration };
+}
+
+// The model sometimes "hears" things during beats with no voice: tags like
+// [Music] / (upbeat music), or a lone "I" every ~20 s. Remove those.
+function cleanWords(words) {
+  const out = [];
+  let depth = 0;
+  for (const word of [...words].sort((a, b) => a.start - b.start)) {
+    const text = word.text.trim();
+    const opens = (text.match(/[[(]/g) || []).length;
+    const closes = (text.match(/[\])]/g) || []).length;
+    const inTag = depth > 0 || opens > 0;
+    depth = Math.max(0, depth + opens - closes);
+    if (inTag || /^[♪♫*\-–—.…]+$/.test(text)) continue;
+    out.push({ ...word, text });
+  }
+  // A short word all alone (6+ s of nothing before and after) is almost always invented.
+  return out.filter((word, i) => {
+    const before = i > 0 ? word.start - (out[i - 1].end ?? out[i - 1].start) : Infinity;
+    const after = i < out.length - 1 ? out[i + 1].start - (word.end ?? word.start) : Infinity;
+    return !(before > 6 && after > 6 && word.text.length <= 6);
+  });
 }
 
 // ------------------------------------------------------------- alignment
-const norm = (w) => String(w).toLowerCase().replace(/[’']/g, '').replace(/[^a-z0-9]/g, '');
+const norm = (w) => String(w).normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[’']/g, '').replace(/[^a-z0-9]/g, '');
 
 function editDistance(a, b) {
   const row = Array.from({ length: b.length + 1 }, (_, j) => j);
@@ -102,11 +110,19 @@ function similar(a, b) {
 export function alignLines(lines, words, duration) {
   const lyricWords = [];
   lines.forEach((line, i) => line.split(/\s+/).map(norm).filter(Boolean).forEach((w, k) => lyricWords.push({ w, line: i, k })));
-  const heard = words.map((x) => ({ w: norm(x.text), t: x.start })).filter((x) => x.w);
+  // Whisper sometimes stretches a word back over the silence before it (e.g. a
+  // first word "starting" at 0:00 in a song that's quiet until 0:06). A single
+  // word never lasts that long, so trust its end instead.
+  const heard = words.map((x) => {
+    const end = Number.isFinite(x.end) ? x.end : x.start + 0.4;
+    const start = end - x.start > 1.2 ? Math.max(x.start, end - 0.5) : x.start;
+    return { w: norm(x.text), t: start, e: end };
+  }).filter((x) => x.w);
   const n = lyricWords.length;
   const m = heard.length;
   const timing = lines.map(() => null);
-  if (!n || !m) return { timing, matched: 0, total: lines.filter((l) => l.trim()).length };
+  const ends = lines.map(() => null);
+  if (!n || !m) return { timing, ends, matched: 0, total: lines.filter((l) => l.trim()).length };
 
   // Longest common subsequence with fuzzy word matching (keeps everything in order).
   const W = m + 1;
@@ -133,13 +149,14 @@ export function alignLines(lines, words, duration) {
   for (const [li, hi] of pairs) {
     const { line, k } = lyricWords[li];
     if (timing[line] === null) timing[line] = Math.max(0, heard[hi].t - k * 0.25);
+    ends[line] = Math.max(ends[line] ?? 0, heard[hi].e); // last heard word of the line
   }
   const lineHasText = lines.map((l) => Boolean(l.trim()));
   const matched = timing.filter((t, i) => t !== null && lineHasText[i]).length;
 
   // Fill in lines that weren't heard clearly: share the time between the
   // matched lines around them, longer lines getting more time.
-  const weight = lines.map((l) => (l.trim() ? l.trim().split(/s+/).length : 0));
+  const weight = lines.map((l) => (l.trim() ? l.trim().split(/\s+/).length : 0));
   const end = Number.isFinite(duration) ? duration : (words[words.length - 1]?.end || 0) + 2;
   let i = 0;
   while (i < lines.length) {
@@ -173,13 +190,24 @@ export function alignLines(lines, words, duration) {
       last = timing[x];
     }
   }
-  return { timing, matched, total: lineHasText.filter(Boolean).length };
+  for (let x = 0; x < lines.length; x += 1) {
+    if (timing[x] === null) { ends[x] = null; continue; }
+    let next = null;
+    for (let y = x + 1; y < lines.length; y += 1) if (timing[y] !== null) { next = timing[y]; break; }
+    const words = lines[x].trim().split(/[ \t]+/).filter(Boolean).length;
+    let e = ends[x] ?? timing[x] + 1 + words * 0.4;
+    e = Math.max(e + 0.25, timing[x] + 0.8); // a little breathing room after the last word
+    if (next !== null) e = Math.min(e, next);
+    ends[x] = Math.round(e * 100) / 100;
+  }
+  return { timing, ends, matched, total: lineHasText.filter(Boolean).length };
 }
 
 // Turns heard words into lyric lines (a new line at each sentence end, pause, or every ~10 words).
 export function wordsToLines(words) {
   const lines = [];
   const timing = [];
+  const lastEnds = [];
   let current = [];
   let start = null;
   words.forEach((word, i) => {
@@ -188,6 +216,7 @@ export function wordsToLines(words) {
     if (current.length && (sentenceEnded || gap > 0.7 || current.length >= 10)) {
       lines.push(current.join(' '));
       timing.push(Math.round(start * 100) / 100);
+      lastEnds.push(words[i - 1].end ?? words[i - 1].start + 0.4);
       current = [];
     }
     if (!current.length) start = word.start;
@@ -196,6 +225,9 @@ export function wordsToLines(words) {
   if (current.length) {
     lines.push(current.join(' '));
     timing.push(Math.round(start * 100) / 100);
+    lastEnds.push(words[words.length - 1].end ?? words[words.length - 1].start + 0.4);
   }
-  return { lines, timing };
+  // each line ends a moment after the next one's start or its own last word
+  const ends = timing.map((t, i) => Math.round(Math.min(timing[i + 1] ?? Infinity, lastEnds[i] + 0.3) * 100) / 100);
+  return { lines, timing, ends };
 }

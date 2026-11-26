@@ -114,6 +114,7 @@ router.get('/features', async (req, res) => {
   res.json({
     syncedLyrics: v4,
     edits: (await schemaFeatures()).v6,
+    lyricEnds: (await schemaFeatures()).v7,
     lyrics: v2,
     waveform: v2,
     stats,
@@ -241,6 +242,13 @@ async function trackInput(body, existing) {
       const r = (n) => Math.round(n * 100) / 100;
       out.edit = { start: r(e.start), end: e.end === null ? null : r(e.end), cuts: e.cuts.map(([a, b]) => [r(a), r(b)]), fadeIn: r(e.fadeIn || 0), fadeOut: r(e.fadeOut || 0) };
     } else throw bad('The trim/cut settings are not valid.');
+  }
+  if (has('lyricsEnds') && body.lyricsEnds !== undefined && (await schemaFeatures()).v7) {
+    const ends = body.lyricsEnds;
+    if (ends === null) out.lyrics_ends = null;
+    else if (Array.isArray(ends) && ends.length <= 600 && ends.every((t) => t === null || (typeof t === 'number' && t >= 0 && t < 36000))) {
+      out.lyrics_ends = ends.map((t) => (t === null ? null : Math.round(t * 100) / 100));
+    } else throw bad('Lyric end times are not valid.');
   }
   if (has('lyricsTiming') && body.lyricsTiming !== undefined && (await schemaFeatures()).v4) {
     const timing = body.lyricsTiming;

@@ -1073,3 +1073,5 @@ html.fire .synced .ly-line.active { color: #fff; }
 @media (min-aspect-ratio: 5/4) and (min-width: 600px) {
   .player.expanded.is-video .np-stage { width: min(100%, calc(78dvh * var(--video-ar, 1.7778))); }
 }
+.lyric-pop.leave { animation: lyric-out .6s ease forwards; }
+@keyframes lyric-out { from { opacity: 1; transform: translateY(-50%) scale(1); filter: blur(0); } to { opacity: 0; transform: translateY(-62%) scale(.97); filter: blur(4px); } }

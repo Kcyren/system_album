@@ -541,6 +541,7 @@ function trackEditor(track) {
   const progressNote = textarea({ maxlength: 1000, placeholder: 'What changed compared to before? What did you learn?' }, track?.progressNote);
   const lyrics = textarea({ maxlength: 10000, rows: 8, placeholder: 'Your bars, line by line', disabled: !S.features.lyrics }, track?.lyrics);
   let timing = Array.isArray(track?.lyricsTiming) ? [...track.lyricsTiming] : null;
+  let lineEnds = Array.isArray(track?.lyricsEnds) ? [...track.lyricsEnds] : null; // from auto-sync
   let edit = track?.edit ? JSON.parse(JSON.stringify(track.edit)) : null;
   let editTouched = false;
   let trimReset = null; // set by the trim tool; resets it when a new file is chosen
@@ -734,6 +735,7 @@ function trackEditor(track) {
       if (S.features.syncedLyrics) {
         const lineCount = lyrics.value.split(/\r?\n/).length;
         if (timingTouched) body.lyricsTiming = timing && timing.length === lineCount && timing.some((t) => t !== null) ? timing : null;
+        if (timingTouched && S.features.lyricEnds) body.lyricsEnds = body.lyricsTiming && lineEnds && lineEnds.length === lineCount ? lineEnds : null;
         else if (timing && timing.length !== lineCount) body.lyricsTiming = null; // lyrics changed: old timing no longer fits
       }
       if (canAnnounce && nextStatus === 'published' && announce.checked) body.announce = true;
@@ -1061,6 +1063,11 @@ function trackEditor(track) {
     const autoStatus = h('p', { class: 'hint', role: 'status' });
 
     // ✨ Listen to the recording (free, in this browser) and line the lyrics up automatically.
+    let listenTimer = 0;
+    // Language of the song (remembered). Pick Español for Spanish and Spanglish songs.
+    const savedLang = localStorage.getItem('sa_asr_lang');
+    const langPick = select([['english', 'English'], ['spanish', 'Español — or mixed Spanish + English']], savedLang === 'spanish' ? 'spanish' : 'english', { 'aria-label': 'Song language' });
+    langPick.addEventListener('change', () => { try { localStorage.setItem('sa_asr_lang', langPick.value); } catch { /* ignore */ } });
     async function autoRun(mode) {
       const src = mediaFile.files[0] || localMediaUrl || track?.mediaUrl;
       if (!src) return toast('Choose the audio or video file first.');
@@ -1071,15 +1078,23 @@ function trackEditor(track) {
       try {
         const { transcribe, alignLines, wordsToLines } = await autoLyrics();
         const heard = await transcribe(src, (p) => {
-          if (p.stage === 'download') say(`Downloading the listening tool… ${p.pct}% (only the first time, ~80 MB)`);
+          if (p.stage === 'download') say(`Downloading the listening tool… ${p.pct !== null && p.pct !== undefined ? `${p.pct}%` : `${p.mb} MB`} (only the first time per language setting, about 80 MB)`);
           if (p.stage === 'decode') say('Reading the recording…');
-          if (p.stage === 'listen') say(`Listening to ${formatDuration(p.seconds)} of music… this can take a minute or two. Keep this tab open.`);
-        });
+          if (p.stage === 'listen') {
+            clearInterval(listenTimer);
+            const started = Date.now();
+            const how = p.device === 'webgpu' ? 'fast mode' : 'normal mode';
+            const tick = () => say(`🎧 Listening to ${formatDuration(p.seconds)} of music (${how})… ${formatDuration((Date.now() - started) / 1000)} so far. You can keep editing — just keep this tab open.`);
+            tick();
+            listenTimer = setInterval(tick, 1000);
+          }
+        }, langPick.value);
         if (!heard.words.length) throw new Error("Couldn't hear any words. Is the voice loud enough over the beat?");
         if (mode === 'write') {
           const result = wordsToLines(heard.words);
           lyrics.value = result.lines.join(String.fromCharCode(10));
           timing = result.timing;
+          lineEnds = result.ends || null;
           timingTouched = true;
           intro();
           say(`✨ Wrote ${result.lines.length} lines and synced them. Read them through and fix any wrong words — the timing stays.`);
@@ -1087,6 +1102,7 @@ function trackEditor(track) {
           const lines = lyrics.value.split(/\r?\n/);
           const result = alignLines(lines, heard.words, heard.duration);
           timing = result.timing;
+          lineEnds = result.ends;
           timingTouched = true;
           intro();
           say(result.matched === result.total
@@ -1100,6 +1116,7 @@ function trackEditor(track) {
         intro();
         say(`Auto-sync didn't work: ${error.message || error}. You can still tap along with “Sync lyrics to the music”.`);
       } finally {
+        clearInterval(listenTimer);
         wrap.querySelectorAll('button').forEach((b) => { b.disabled = false; });
       }
     }
@@ -1112,6 +1129,7 @@ function trackEditor(track) {
             ? h('button', { class: 'btn small primary', type: 'button', onclick: () => autoRun('align') }, '✨ Auto-sync to the music')
             : h('button', { class: 'btn small primary', type: 'button', onclick: () => autoRun('write') }, '✨ Write lyrics from the recording'),
           hasLyrics ? h('button', { class: 'btn small', type: 'button', onclick: build }, timing ? '✓ Synced — edit timing' : '🎤 Sync by tapping') : null),
+        h('label', { class: 'lang-pick' }, h('span', {}, 'Song language'), langPick),
         h('p', { class: 'hint' }, hasLyrics
           ? 'Auto-sync listens to the track (free, right here in your browser) and lines your lyrics up with your voice. Or tap along yourself.'
           : 'No lyrics yet? Let it listen and write them for you, already synced. Then fix any wrong words.'),
@@ -1141,11 +1159,14 @@ function trackEditor(track) {
         list.replaceChildren(...lines.map((line, i) => h('li', {
           class: [i === next ? 'next' : '', line.trim() ? '' : 'blank'].join(' ').trim(),
           'data-i': String(i),
-          title: line.trim() ? 'Click to set this line to the current time' : null,
+          title: line.trim() ? 'Click to fix this line: it plays from just before it, then press TAP when the line starts' : null,
           onclick: () => {
             if (!line.trim()) return;
-            timing[i] = Math.round(audio.currentTime * 100) / 100;
-            timingTouched = true;
+            // Select this line and play from a moment before it, so TAP can re-time it.
+            next = i;
+            const from = timing[i] !== null ? Math.max(0, timing[i] - 2) : audio.currentTime;
+            audio.currentTime = from;
+            audio.play().catch(() => {});
             draw();
           },
         }, h('span', { class: 't' }, timing[i] === null ? '–:––' : fmt(timing[i])), h('span', {}, line || ' '))));
@@ -1156,9 +1177,11 @@ function trackEditor(track) {
       }
 
       function tap() {
+        if (next < 0) next = nextIndex(0); // everything timed already: start over from the top
         if (next < 0) return;
         if (audio.paused) audio.play().catch(() => {});
         timing[next] = Math.round(audio.currentTime * 100) / 100;
+        if (lineEnds) lineEnds[next] = null; // its old end time may no longer fit; the site estimates it
         timingTouched = true;
         next = nextIndex(next + 1);
         draw();
@@ -1192,7 +1215,7 @@ function trackEditor(track) {
           }
         },
       },
-      h('p', { class: 'hint' }, 'Press ▶ then hit TAP (or the Space bar) the moment each line starts. Click any line later to fix its time.'),
+      h('p', { class: 'hint' }, 'Press ▶ then hit TAP (or the Space bar) the moment each line starts. To fix one line: click it (it plays from just before), then TAP when the line starts.'),
       audio,
       h('div', { class: 'form-actions' },
         h('button', { class: 'btn primary', type: 'button', onclick: tap }, 'TAP — next line'),

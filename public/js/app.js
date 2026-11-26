@@ -207,10 +207,15 @@ function showLyricPop(track, index) {
     }
     if (pop.dataset.text === text) continue;
     pop.dataset.text = text;
-    pop.classList.remove('show');
+    if (!text) {
+      // Line finished: fade the last words out (keep them on screen while fading).
+      if (pop.classList.contains('show')) pop.classList.replace('show', 'leave');
+      continue;
+    }
+    pop.classList.remove('show', 'leave');
     void pop.offsetWidth; // restart the pop animation
     pop.textContent = text;
-    if (text) pop.classList.add('show');
+    pop.classList.add('show');
   }
 }
 
@@ -236,31 +241,52 @@ function onLyricClick(track) {
   };
 }
 
+// How long a line is "being sung": until the next line starts, but never
+// longer than the words need. So intros, beat breaks and outros show nothing.
+function lineEnd(track, timing, i) {
+  // Saved by auto-sync: exactly when the line was finished being sung.
+  const saved = track.lyricsTiming && track.lyricsEnds?.[i];
+  if (Number.isFinite(saved) && saved > timing[i]) return saved;
+  const words = (lyricRows(track)[i] || '').trim().split(/\s+/).filter(Boolean).length;
+  const needed = 1.2 + words * 0.45;
+  let next = null;
+  for (let j = 0; j < timing.length; j += 1) if (timing[j] !== null && timing[j] > timing[i] && (next === null || timing[j] < next)) next = timing[j];
+  const songEnd = player.edit ? player.edit.end : media.duration || Infinity;
+  return Math.min(next ?? songEnd, timing[i] + needed);
+}
+
 function updateLyrics(force = false) {
   const track = player.track;
   const timing = lyricTiming(track);
   if (!timing) return;
   const now = media.currentTime;
-  let active = -1;
+  // The line that started most recently (works even if saved times are out of order).
+  let current = -1;
+  let best = -Infinity;
   timing.forEach((start, i) => {
-    if (start !== null && start <= now + 0.15) active = i;
+    if (start !== null && start <= now + 0.15 && start >= best) { best = start; current = i; }
   });
-  if (active === player.lyricIndex && !force) return;
-  player.lyricIndex = active;
-  showLyricPop(track, active);
+  // Lines like "[Music]" or "(intro)" are notes, not words to sing: never pop them up.
+  const isNote = current >= 0 && /^\s*[[(].*[\])]\s*$/.test(lyricRows(track)[current] || '');
+  const singing = current >= 0 && !isNote && now < lineEnd(track, timing, current);
+  const active = singing ? current : -1;
+  const key = `${current}:${active}`;
+  if (key === player.lyricIndex && !force) return;
+  player.lyricIndex = key;
+  showLyricPop(track, active); // nothing pops up between lines
   document.querySelectorAll('.lyrics.synced.is-live').forEach((box) => { if (box.dataset.lyrics !== track.id) box.classList.remove('is-live'); });
   document.querySelectorAll(`[data-lyrics="${track.id}"]`).forEach((box) => {
     box.classList.add('is-live');
     box.querySelectorAll('.ly-line').forEach((line) => {
       const i = Number(line.dataset.i);
       line.classList.toggle('active', i === active);
-      line.classList.toggle('done', i < active);
+      line.classList.toggle('done', i < current || (i === current && !singing));
     });
-    const line = box.querySelector('.ly-line.active');
+    // Keep the current (or last sung) line in the middle of the lyrics box.
+    const line = box.querySelector(`.ly-line[data-i="${Math.max(current, 0)}"]`);
     const scroller = box.closest('.np-lyrics') || box;
     const userScrolled = Date.now() - Number(scroller.dataset.userScroll || 0) < 3500;
-    if (line && scroller.scrollHeight > scroller.clientHeight && (force || !userScrolled)) {
-      // Keep the line being sung in the middle of the lyrics box.
+    if (line && current >= 0 && scroller.scrollHeight > scroller.clientHeight && (force || !userScrolled)) {
       scroller.scrollTo({ top: line.offsetTop - scroller.clientHeight / 2 + line.offsetHeight / 2, behavior: 'smooth' });
     }
   });
@@ -318,7 +344,7 @@ function load(track, autoplay) {
   player.edit = editMap(track.edit, track.rawDuration);
   cancelAnimationFrame(player.editRaf);
   media.volume = player.userVolume;
-  player.lyricIndex = -2;
+  player.lyricIndex = '';
   player.listened = 0;
   player.lastTime = 0;
   player.counted = false;
@@ -386,8 +412,14 @@ function step(direction) {
   if (next < 0 || next >= player.queue.length) return;
   player.pendingSeek = null;
   player.pendingRaw = null;
+  const from = player.track?.id;
   player.index = next;
   load(player.queue[next], true);
+  // If you were looking at the song that just ended, show the new one (like Spotify).
+  if (from && location.pathname === `/track/${from}` && player.track.status !== 'draft') {
+    history.pushState(null, '', `/track/${player.track.id}`);
+    route();
+  }
 }
 
 function closePlayer() {
@@ -405,6 +437,7 @@ function closePlayer() {
 }
 
 function setExpanded(open) {
+  if (open) requestAnimationFrame(() => requestAnimationFrame(() => updateLyrics(true)));
   if (!open && document.fullscreenElement) document.exitFullscreen().catch(() => {});
   playerEl.classList.toggle('expanded', open);
   document.body.classList.toggle('player-open', open);

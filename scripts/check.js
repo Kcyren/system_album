@@ -26,6 +26,11 @@ const fail = (msg) => {
     else ok(`Table "${table}" exists`);
   }
 
+  const { error: v2Error } = await db.from('tracks').select('lyrics,waveform').limit(1);
+  const { error: dailyError } = await db.from('play_daily').select('day').limit(1);
+  if (v2Error || dailyError) fail('Update 002 not installed (lyrics, waveforms, weekly stats) — run supabase/migrations/002_lyrics_waveform_stats.sql');
+  else ok('Update 002 installed (lyrics, waveforms, weekly stats)');
+
   const { error: rpcError } = await db.rpc('reaction_counts');
   if (rpcError) fail(`Function reaction_counts: ${rpcError.message}`);
   else ok('Database functions installed');

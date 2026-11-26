@@ -8,12 +8,14 @@ const { db, fileUrl, must } = require('./supabase');
 const { escapeHtml } = require('./util');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+const VIEWS_DIR = path.join(__dirname, '..', 'views');
+const view = (name) => path.join(VIEWS_DIR, name);
 const router = express.Router();
 
 let cachedShell = null;
 function shell() {
   // Re-read during development so edits show up without restarting.
-  if (!cachedShell || !config.production) cachedShell = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8');
+  if (!cachedShell || !config.production) cachedShell = fs.readFileSync(view('index.html'), 'utf8');
   return cachedShell;
 }
 
@@ -77,7 +79,7 @@ router.get('/album/:id', async (req, res) => {
 });
 
 router.get('/studio', (req, res) => {
-  res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex').sendFile(path.join(PUBLIC_DIR, 'studio.html'));
+  res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex').sendFile(view('studio.html'));
 });
 
 router.get('/unsubscribe', async (req, res) => {
@@ -92,4 +94,4 @@ router.get('/unsubscribe', async (req, res) => {
 <body><main><h1>System Album</h1><p>${escapeHtml(message)}</p><p><a href="/">Back to the music</a></p></main></body></html>`);
 });
 
-module.exports = { router, PUBLIC_DIR };
+module.exports = { router, PUBLIC_DIR, view };

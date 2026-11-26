@@ -110,6 +110,39 @@ export function artFor(item, { alt = true } = {}) {
   return generatedArt(item.id, item.title);
 }
 
+// ------------------------------------------------------------ waveform
+// peaks: numbers 0–100. onSeek(fraction) is called when clicked or arrowed.
+export function waveform(peaks, { label = 'Seek in this track', onSeek } = {}) {
+  const layer = (cls) => h('div', { class: cls, 'aria-hidden': 'true' }, ...peaks.map((peak) => {
+    const bar = h('i');
+    bar.style.height = `${Math.max(8, peak)}%`;
+    return bar;
+  }));
+  const el = h('div', {
+    class: 'wave', role: 'slider', tabindex: '0', 'aria-label': label,
+    'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': '0',
+  }, layer('wave-base'), layer('wave-fill'));
+
+  const seek = (fraction) => onSeek?.(Math.min(1, Math.max(0, fraction)));
+  el.addEventListener('click', (event) => {
+    const rect = el.getBoundingClientRect();
+    seek((event.clientX - rect.left) / rect.width);
+  });
+  el.addEventListener('keydown', (event) => {
+    const now = Number(el.dataset.p || 0);
+    if (event.key === 'ArrowRight') seek(now + 0.05);
+    else if (event.key === 'ArrowLeft') seek(now - 0.05);
+    else return;
+    event.preventDefault();
+  });
+  el.setProgress = (fraction) => {
+    el.style.setProperty('--p', `${(fraction * 100).toFixed(2)}%`);
+    el.dataset.p = String(fraction);
+    el.setAttribute('aria-valuenow', String(Math.round(fraction * 100)));
+  };
+  return el;
+}
+
 // --------------------------------------------------------------- cards
 // opts: { onPlay(track), onShare(track), href, preview (bool: autoplaying muted video) }
 export function trackCard(track, opts = {}) {

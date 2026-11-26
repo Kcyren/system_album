@@ -1,7 +1,7 @@
 import { icon, hydrateIcons, h, formatDuration, formatDate, plural, artFor, trackCard } from './ui.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
-const S = { email: null, tracks: [], albums: [], categories: [], profile: null, milestones: [], tab: 'overview' };
+const S = { email: null, tracks: [], albums: [], categories: [], profile: null, milestones: [], features: {}, tab: 'overview' };
 
 // ================================================================ helpers
 async function api(path, { method = 'GET', body } = {}) {
@@ -115,17 +115,58 @@ async function imageValue(picker, kind, onProgress) {
   return undefined;
 }
 
+// ============================================================== waveform
+// Reads the audio (from a chosen file or an uploaded URL) and measures how
+// loud each slice is, giving ~120 bar heights from 0 to 100.
+async function computeWaveform(source, bars = 120) {
+  const AudioCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!AudioCtx) return null;
+  try {
+    const buffer = source instanceof Blob
+      ? await source.arrayBuffer()
+      : await fetch(source).then((r) => {
+        if (!r.ok) throw new Error('download failed');
+        return r.arrayBuffer();
+      });
+    const ctx = new AudioCtx(1, 1, 44100);
+    const audio = await ctx.decodeAudioData(buffer);
+    const channels = Array.from({ length: audio.numberOfChannels }, (_, i) => audio.getChannelData(i));
+    const block = Math.max(1, Math.floor(audio.length / bars));
+    const stride = Math.max(1, Math.floor(block / 400)); // sample ~400 points per bar: fast and accurate enough
+    const levels = [];
+    for (let b = 0; b < bars; b += 1) {
+      let sum = 0;
+      let count = 0;
+      for (let i = b * block; i < (b + 1) * block && i < audio.length; i += stride) {
+        for (const data of channels) sum += data[i] * data[i];
+        count += channels.length;
+      }
+      levels.push(count ? Math.sqrt(sum / count) : 0);
+    }
+    const peak = Math.max(...levels) || 1;
+    return levels.map((v) => Math.round((v / peak) * 100));
+  } catch (error) {
+    console.warn('Waveform could not be created', error);
+    return null;
+  }
+}
+
+const withTimeout = (promise, ms) => Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(null), ms))]);
+
 // ================================================================== data
 async function loadAll() {
-  const [tracks, albums, categories, profile, milestones] = await Promise.all([
+  const [tracks, albums, categories, profile, milestones, features] = await Promise.all([
     api('/api/studio/tracks'),
     api('/api/studio/albums'),
     api('/api/studio/categories'),
     api('/api/studio/profile'),
     api('/api/studio/milestones'),
+    api('/api/studio/features'),
   ]);
-  Object.assign(S, { tracks, albums, categories, profile, milestones });
+  Object.assign(S, { tracks, albums, categories, profile, milestones, features });
 }
+
+const MIGRATION_HINT = 'Needs a one-time database update: run supabase/migrations/002_lyrics_waveform_stats.sql in the Supabase SQL Editor.';
 
 const refreshTracks = async () => { S.tracks = await api('/api/studio/tracks'); };
 
@@ -157,6 +198,9 @@ views.overview = () => {
     h('button', { class: 'btn primary', type: 'button', html: icon('plus'), onclick: () => openTab('tracks', 'new') }, 'New recording')));
   const stats = h('div', { class: 'stats' }, h('div', { class: 'stat' }, h('b', {}, '…'), h('span', {}, 'Loading')));
   root.append(stats);
+  const chartPanel = h('div', { class: 'panel', style: 'margin-top:16px' }, h('h3', {}, 'Plays per week'), h('p', { class: 'muted small' }, 'Loading…'));
+  root.append(chartPanel);
+  api('/api/studio/stats').then((data) => renderWeekly(chartPanel, data)).catch((e) => chartPanel.append(h('p', { class: 'status error' }, e.message)));
   api('/api/studio/overview').then((o) => {
     const stat = (n, label) => h('div', { class: 'stat' }, h('b', {}, n.toLocaleString()), h('span', {}, label));
     stats.replaceChildren(
@@ -189,10 +233,123 @@ views.overview = () => {
   return root;
 };
 
+// ----------------------------------------------------- weekly plays chart
+function niceCeil(value) {
+  const power = 10 ** Math.floor(Math.log10(value));
+  for (const step of [1, 2, 2.5, 5, 10]) if (value <= step * power) return step * power;
+  return 10 * power;
+}
+
+const weekLabel = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+
+function renderWeekly(panel, data) {
+  const title = h('h3', {}, 'Plays per week');
+  if (!data.available) {
+    panel.replaceChildren(title, h('p', { class: 'muted small' }, MIGRATION_HINT));
+    return;
+  }
+  const { weeks } = data;
+  const total = weeks.reduce((sum, w) => sum + w.plays, 0);
+  const since = data.trackingSince ? `Tracking since ${formatDate(data.trackingSince)}.` : 'Weekly tracking starts with the next play.';
+  const intro = h('p', { class: 'muted small' }, `Last 12 weeks (weeks start Monday). ${since}`);
+  if (!total) {
+    panel.replaceChildren(title, intro, h('p', { class: 'empty' }, 'No plays recorded in the last 12 weeks yet. Share a track to get the first listeners!'));
+    return;
+  }
+
+  // Geometry (SVG units; the chart scales to the panel width).
+  const W = 640;
+  const H = 230;
+  const pad = { l: 34, r: 6, t: 18, b: 26 };
+  const plotW = W - pad.l - pad.r;
+  const plotH = H - pad.t - pad.b;
+  const max = niceCeil(Math.max(...weeks.map((w) => w.plays)));
+  const slot = plotW / weeks.length;
+  const barW = Math.min(28, slot * 0.6);
+  const base = pad.t + plotH;
+  const y = (v) => base - (v / max) * plotH;
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" class="chart-svg" role="img" aria-label="Bar chart of plays per week. Table view below.">`;
+  for (const tick of [0, max / 2, max]) {
+    svg += `<line x1="${pad.l}" x2="${W - pad.r}" y1="${y(tick)}" y2="${y(tick)}" class="${tick === 0 ? 'axis' : 'grid'}"/>`;
+    svg += `<text x="${pad.l - 6}" y="${y(tick) + 4}" class="tick" text-anchor="end">${Math.round(tick * 10) / 10}</text>`;
+  }
+  weeks.forEach((w, i) => {
+    const x = pad.l + i * slot + (slot - barW) / 2;
+    if (w.plays > 0) {
+      const top = y(w.plays);
+      const r = Math.min(4, base - top, barW / 2); // rounded data-end, square at the baseline
+      svg += `<path class="bar" data-i="${i}" d="M${x},${base} V${top + r} Q${x},${top} ${x + r},${top} H${x + barW - r} Q${x + barW},${top} ${x + barW},${top + r} V${base} Z"/>`;
+    }
+    if (i % 2 === weeks.length % 2 || i === weeks.length - 1) {
+      svg += `<text x="${x + barW / 2}" y="${H - 8}" class="tick" text-anchor="middle">${i === weeks.length - 1 ? 'This week' : weekLabel(w.start)}</text>`;
+    }
+    svg += `<rect class="hit" data-i="${i}" x="${pad.l + i * slot}" y="${pad.t}" width="${slot}" height="${plotH}"/>`;
+  });
+  // Direct label on the latest week only (selective labelling).
+  const last = weeks[weeks.length - 1];
+  const lastX = pad.l + (weeks.length - 1) * slot + slot / 2;
+  svg += `<text x="${lastX}" y="${y(last.plays) - 6}" class="value" text-anchor="middle">${last.plays}</text>`;
+  svg += '</svg>';
+
+  const tip = h('div', { class: 'chart-tip', hidden: true });
+  const chart = h('div', { class: 'chart', html: svg }, tip);
+  chart.addEventListener('pointermove', (event) => {
+    const hit = event.target.closest('.hit');
+    chart.querySelectorAll('.bar.active').forEach((b) => b.classList.remove('active'));
+    if (!hit) {
+      tip.hidden = true;
+      return;
+    }
+    const w = weeks[Number(hit.dataset.i)];
+    chart.querySelector(`.bar[data-i="${hit.dataset.i}"]`)?.classList.add('active');
+    tip.replaceChildren(h('b', {}, plural(w.plays, 'play')), h('span', {}, `Week of ${weekLabel(w.start)}`));
+    const box = chart.getBoundingClientRect();
+    tip.hidden = false;
+    tip.style.left = `${Math.min(box.width - 130, Math.max(0, event.clientX - box.left + 12))}px`;
+    tip.style.top = `${event.clientY - box.top - 50}px`;
+  });
+  chart.addEventListener('pointerleave', () => {
+    tip.hidden = true;
+    chart.querySelectorAll('.bar.active').forEach((b) => b.classList.remove('active'));
+  });
+
+  const table = h('details', { class: 'chart-table' },
+    h('summary', {}, 'Show as table'),
+    h('table', { class: 'simple' },
+      h('thead', {}, h('tr', {}, h('th', {}, 'Week starting'), h('th', {}, 'Plays'))),
+      h('tbody', {}, ...weeks.map((w) => h('tr', {}, h('td', {}, formatDate(w.start)), h('td', {}, w.plays.toLocaleString())))),
+    ));
+
+  const top = data.thisWeekTop.length
+    ? h('div', { style: 'margin-top:14px' },
+      h('div', { class: 'label' }, 'Top this week'),
+      h('ul', { class: 'list' }, ...data.thisWeekTop.map((t) => h('li', { class: 'row no-thumb' },
+        h('span', { class: 'row-title' }, t.title), h('span', { class: 'muted small' }, plural(t.plays, 'play'))))))
+    : null;
+
+  panel.replaceChildren(title, intro, chart, table, top);
+}
+
 // --------------------------------------------------------------- tracks
 views.tracks = (editId) => {
   if (editId) return trackEditor(editId === 'new' ? null : S.tracks.find((t) => t.id === editId));
+  const missing = S.features.waveform ? S.tracks.filter((t) => !t.waveform) : [];
+  const bulk = missing.length ? h('button', {
+    class: 'btn', type: 'button',
+    onclick: async () => {
+      bulk.disabled = true;
+      let done = 0;
+      for (const t of missing) {
+        bulk.textContent = `Creating waveforms… ${done + 1}/${missing.length}`;
+        if (await makeWaveform(t)) done += 1;
+      }
+      toast(`Added ${plural(done, 'waveform')}`);
+      openTab('tracks');
+    },
+  }, `Create ${plural(missing.length, 'missing waveform')}`) : null;
   const root = h('div', {}, head('Tracks', `${plural(S.tracks.length, 'recording')} · drafts are only visible to you.`,
+    bulk,
     h('button', { class: 'btn primary', type: 'button', html: icon('plus'), onclick: () => openTab('tracks', 'new') }, 'New recording')));
 
   if (!S.tracks.length) {
@@ -233,10 +390,24 @@ async function deleteTrack(track) {
   }
 }
 
+async function makeWaveform(track) {
+  const peaks = await computeWaveform(track.mediaUrl);
+  if (!peaks) return false;
+  try {
+    await api(`/api/studio/tracks/${track.id}`, { method: 'PATCH', body: { waveform: peaks } });
+    track.waveform = peaks;
+    return true;
+  } catch (e) {
+    toast(e.message);
+    return false;
+  }
+}
+
 function trackEditor(track) {
   const isNew = !track;
   let duration = null;
   let localMediaUrl = null;
+  let wavePromise = null;
 
   const title = input({ maxlength: 120, required: true, value: track?.title || '', placeholder: 'Name your recording' });
   const category = select(S.categories.map((c) => [String(c.id), c.name]), track ? String(track.categoryId) : String(S.categories[0]?.id || ''));
@@ -245,6 +416,7 @@ function trackEditor(track) {
   const description = textarea({ maxlength: 2000, placeholder: 'What is this track about?' }, track?.description);
   const howMade = textarea({ maxlength: 2000, placeholder: 'The beat, your mood, what you tried…' }, track?.howMade);
   const progressNote = textarea({ maxlength: 1000, placeholder: 'What changed compared to before? What did you learn?' }, track?.progressNote);
+  const lyrics = textarea({ maxlength: 10000, rows: 8, placeholder: 'Your bars, line by line', disabled: !S.features.lyrics }, track?.lyrics);
   const date = input({ type: 'date', value: track?.recordedDate || '' });
   const time = input({ type: 'time', value: track?.recordedTime || '' });
   const album = select([['', 'No album'], ...S.albums.map((a) => [a.id, a.title])], track?.album?.id || '');
@@ -297,6 +469,7 @@ function trackEditor(track) {
     if (localMediaUrl) URL.revokeObjectURL(localMediaUrl);
     localMediaUrl = chosen ? URL.createObjectURL(chosen) : null;
     duration = null;
+    wavePromise = chosen && S.features.waveform ? computeWaveform(chosen) : null;
     showMedia(localMediaUrl || track?.mediaUrl, currentType());
     if (chosen && !title.value.trim()) title.value = chosen.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').slice(0, 120);
     updateCard();
@@ -330,6 +503,12 @@ function trackEditor(track) {
         albumId: album.value,
         status: nextStatus,
       };
+      if (S.features.lyrics) body.lyrics = lyrics.value;
+      if (mediaFile.files[0] && wavePromise) {
+        setStatus(status, 'Reading the waveform…');
+        const peaks = await withTimeout(wavePromise, 20000);
+        if (peaks) body.waveform = peaks;
+      }
       if (mediaFile.files[0]) {
         setStatus(status, 'Uploading your recording…');
         body.mediaPath = (await upload(mediaFile.files[0], 'media', (f) => showProgress(f * 0.9))).path;
@@ -375,6 +554,7 @@ function trackEditor(track) {
     field('About this track', description, { optional: true }),
     field('How it was made', howMade, { optional: true }),
     field('Progress note', progressNote, { optional: true, hint: 'Shown on the Journey section and the track page.' }),
+    field('Lyrics / bars', lyrics, { optional: true, hint: S.features.lyrics ? 'Shown on the track page and in the full-screen player. Searchable.' : MIGRATION_HINT }),
     h('div', { class: 'field-grid' }, field('Recording date', date, { optional: true }), field('Recording time', time, { optional: true })),
     field('Album', album, { optional: true }),
     progress,
@@ -383,9 +563,27 @@ function trackEditor(track) {
   );
 
   const previewCol = h('div', { class: 'preview-col' },
-    h('div', { class: 'panel' }, h('h3', {}, 'Listen back'), h('p', { class: 'muted small' }, 'Check your recording before you publish.'), mediaPreview),
+    h('div', { class: 'panel' }, h('h3', {}, 'Listen back'), h('p', { class: 'muted small' }, 'Check your recording before you publish.'), mediaPreview, waveTools()),
     h('div', { class: 'panel' }, h('h3', {}, 'Card preview'), h('p', { class: 'muted small' }, 'How it will look on the site.'), cardPreview),
   );
+
+  function waveTools() {
+    if (!track || track.waveform) return null;
+    if (!S.features.waveform) return h('p', { class: 'hint' }, `Waveform: ${MIGRATION_HINT}`);
+    const note = h('p', { class: 'hint', role: 'status' });
+    const button = h('button', {
+      class: 'btn small', type: 'button', style: 'margin-top:12px',
+      onclick: async () => {
+        button.disabled = true;
+        note.textContent = 'Reading the audio…';
+        const ok = await makeWaveform(track);
+        note.textContent = ok ? 'Waveform added.' : 'Could not read this file in your browser. Try Chrome or Edge.';
+        button.hidden = ok;
+        button.disabled = false;
+      },
+    }, 'Create waveform');
+    return h('div', {}, button, note);
+  }
 
   showMedia(track?.mediaUrl, track?.mediaType);
   updateCard();

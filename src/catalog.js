@@ -7,6 +7,25 @@ const TRACK_FIELDS =
   'album_id,album_position,duration_seconds,status,plays,created_at,updated_at,published_at,' +
   'category:categories(id,name),album:albums(id,title)';
 
+// Lyrics, waveforms and daily play stats need supabase/migrations/002.
+// Until it's run, the site keeps working without those features.
+let featureCache = null;
+async function schemaFeatures() {
+  const cached = featureCache;
+  if (cached && ((cached.value.v2 && cached.value.stats) || Date.now() - cached.at < 60 * 1000)) return cached.value;
+  const [tracksCheck, statsCheck] = await Promise.all([
+    db.from('tracks').select('lyrics,waveform').limit(1),
+    db.from('play_daily').select('day').limit(1),
+  ]);
+  const value = { v2: !tracksCheck.error, stats: !statsCheck.error };
+  featureCache = { value, at: Date.now() };
+  return value;
+}
+
+async function trackFields() {
+  return (await schemaFeatures()).v2 ? `${TRACK_FIELDS},lyrics,waveform` : TRACK_FIELDS;
+}
+
 function mapTrack(row, reactionTotals = {}) {
   return {
     id: row.id,
@@ -19,6 +38,8 @@ function mapTrack(row, reactionTotals = {}) {
     description: row.description,
     howMade: row.how_made,
     progressNote: row.progress_note,
+    lyrics: row.lyrics ?? null,
+    waveform: Array.isArray(row.waveform) && row.waveform.length ? row.waveform : null,
     recordedDate: row.recorded_date,
     recordedTime: row.recorded_time ? row.recorded_time.slice(0, 5) : null,
     album: row.album ? { id: row.album.id, title: row.album.title } : null,
@@ -43,8 +64,9 @@ async function reactionTotals() {
 }
 
 async function publishedTracks() {
+  const fields = await trackFields();
   const [rows, totals] = await Promise.all([
-    db.from('tracks').select(TRACK_FIELDS).eq('status', 'published').order('published_at', { ascending: false }).then(must),
+    db.from('tracks').select(fields).eq('status', 'published').order('published_at', { ascending: false }).then(must),
     reactionTotals(),
   ]);
   return rows.map((row) => mapTrack(row, totals));
@@ -136,4 +158,4 @@ function buildJourney(tracks, customMilestones, profile) {
   };
 }
 
-module.exports = { TRACK_FIELDS, mapTrack, reactionTotals, publishedTracks, publicAlbums, mapAlbum, buildJourney };
+module.exports = { schemaFeatures, trackFields, mapTrack, reactionTotals, publishedTracks, publicAlbums, mapAlbum, buildJourney };

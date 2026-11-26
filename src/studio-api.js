@@ -4,7 +4,7 @@ const express = require('express');
 const config = require('./config');
 const { db, storage, fileUrl, must, removeFiles } = require('./supabase');
 const { requireCreator, sameOrigin } = require('./auth');
-const { TRACK_FIELDS, mapTrack, reactionTotals } = require('./catalog');
+const { schemaFeatures, trackFields, mapTrack, reactionTotals } = require('./catalog');
 const { loadProfile } = require('./public-api');
 const { HttpError, bad, text, dateValue, timeValue, urlValue, idValue, randomId } = require('./util');
 
@@ -107,17 +107,63 @@ router.get('/overview', async (req, res) => {
   });
 });
 
+// Which optional features the database supports (see supabase/migrations).
+router.get('/features', async (req, res) => {
+  const { v2, stats } = await schemaFeatures();
+  res.json({ lyrics: v2, waveform: v2, stats });
+});
+
+// ============================================================ weekly stats
+const DAY_MS = 24 * 60 * 60 * 1000;
+const isoDay = (ms) => new Date(ms).toISOString().slice(0, 10);
+
+router.get('/stats', async (req, res) => {
+  if (!(await schemaFeatures()).stats) return res.json({ available: false });
+
+  const WEEKS = 12;
+  const now = new Date();
+  const todayMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const mondayMs = todayMs - ((now.getUTCDay() + 6) % 7) * DAY_MS; // weeks start on Monday (UTC)
+  const firstMs = mondayMs - (WEEKS - 1) * 7 * DAY_MS;
+
+  // Read in pages of 1000 rows (Supabase's default limit per request).
+  const rows = [];
+  for (let from = 0; ; from += 1000) {
+    const page = must(await db.from('play_daily').select('track_id,day,plays').gte('day', isoDay(firstMs)).order('day').range(from, from + 999));
+    rows.push(...page);
+    if (page.length < 1000) break;
+  }
+  const [firstRow] = must(await db.from('play_daily').select('day').order('day').limit(1));
+
+  const weeks = Array.from({ length: WEEKS }, (_, i) => ({ start: isoDay(firstMs + i * 7 * DAY_MS), plays: 0 }));
+  const thisWeek = new Map();
+  for (const row of rows) {
+    const index = Math.floor((Date.parse(`${row.day}T00:00:00Z`) - firstMs) / (7 * DAY_MS));
+    if (index >= 0 && index < WEEKS) weeks[index].plays += row.plays;
+    if (index === WEEKS - 1) thisWeek.set(row.track_id, (thisWeek.get(row.track_id) || 0) + row.plays);
+  }
+
+  const topIds = [...thisWeek.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const titles = topIds.length ? must(await db.from('tracks').select('id,title').in('id', topIds.map(([id]) => id))) : [];
+  res.json({
+    available: true,
+    trackingSince: firstRow?.day || null,
+    weeks,
+    thisWeekTop: topIds.map(([id, plays]) => ({ id, plays, title: titles.find((t) => t.id === id)?.title || 'Deleted track' })),
+  });
+});
+
 // ================================================================== tracks
 router.get('/tracks', async (req, res) => {
   const [rows, totals] = await Promise.all([
-    db.from('tracks').select(TRACK_FIELDS).order('created_at', { ascending: false }).then(must),
+    db.from('tracks').select(await trackFields()).order('created_at', { ascending: false }).then(must),
     reactionTotals(),
   ]);
   res.json(rows.map((row) => mapTrack(row, totals)));
 });
 
 router.get('/tracks/:id', async (req, res) => {
-  const row = must(await db.from('tracks').select(TRACK_FIELDS).eq('id', idValue(req.params.id, 'Track')).maybeSingle(), 'Track not found.');
+  const row = must(await db.from('tracks').select(await trackFields()).eq('id', idValue(req.params.id, 'Track')).maybeSingle(), 'Track not found.');
   res.json(mapTrack(row, await reactionTotals()));
 });
 
@@ -162,19 +208,33 @@ async function trackInput(body, existing) {
     }
     if (!albumId) out.album_position = null;
   }
+  const { v2 } = await schemaFeatures();
+  if (has('lyrics') && body.lyrics !== undefined) {
+    const lyrics = text(body.lyrics, { name: 'Lyrics', max: 10000 });
+    if (v2) out.lyrics = lyrics;
+    else if (lyrics) throw bad('Lyrics need a one-time database update first: run supabase/migrations/002_lyrics_waveform_stats.sql in Supabase.');
+  }
+  if (has('waveform') && body.waveform !== undefined && v2) {
+    const wave = body.waveform;
+    if (wave === null) out.waveform = null;
+    else if (Array.isArray(wave) && wave.length <= 400 && wave.every((n) => Number.isInteger(n) && n >= 0 && n <= 100)) out.waveform = wave;
+    else throw bad('Waveform data is not valid.');
+  }
   if (has('status')) {
     if (body.status !== 'draft' && body.status !== 'published') throw bad('Status must be draft or published.');
     out.status = body.status;
     // Keep the first publish date, so editing an old track doesn't make it "new".
     if (body.status === 'published' && !existing?.published_at) out.published_at = new Date().toISOString();
   }
+  // A new recording makes the old waveform wrong.
+  if (v2 && existing && out.media_path && !('waveform' in out)) out.waveform = null;
   return out;
 }
 
 router.post('/tracks', async (req, res) => {
   const body = { status: 'draft', ...req.body };
   const input = await trackInput(body, null);
-  const row = must(await db.from('tracks').insert(input).select(TRACK_FIELDS).single());
+  const row = must(await db.from('tracks').insert(input).select(await trackFields()).single());
   res.status(201).json(mapTrack(row));
 });
 
@@ -183,7 +243,7 @@ router.patch('/tracks/:id', async (req, res) => {
   const existing = must(await db.from('tracks').select('*').eq('id', id).maybeSingle(), 'Track not found.');
   const input = await trackInput(req.body || {}, existing);
   input.updated_at = new Date().toISOString();
-  const row = must(await db.from('tracks').update(input).eq('id', id).select(TRACK_FIELDS).single());
+  const row = must(await db.from('tracks').update(input).eq('id', id).select(await trackFields()).single());
   // Clean up files that were replaced or removed.
   await removeFiles([
     input.media_path && input.media_path !== existing.media_path ? existing.media_path : null,

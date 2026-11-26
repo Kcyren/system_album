@@ -77,6 +77,19 @@
 .order-list .row { grid-template-columns: 30px minmax(0, 1fr) auto; }
 .order-num { color: #7d8bab; font: 700 14px 'Space Grotesk', sans-serif; }
 
+.chart { position: relative; margin-top: 8px; }
+.chart-svg { width: 100%; height: auto; display: block; overflow: visible; }
+.chart-svg .grid { stroke: #ffffff14; stroke-width: 1; }
+.chart-svg .axis { stroke: #ffffff33; stroke-width: 1; }
+.chart-svg .tick { fill: #8f9cb9; font: 500 11px 'DM Sans', sans-serif; }
+.chart-svg .value { fill: #f7f9ff; font: 700 12px 'DM Sans', sans-serif; }
+.chart-svg .bar { fill: #5b7fff; transition: fill .15s; }
+.chart-svg .bar.active { fill: #8ea6ff; }
+.chart-svg .hit { fill: transparent; cursor: default; }
+.chart-tip { position: absolute; pointer-events: none; background: #f7f9ff; color: #0d1430; border-radius: 8px; padding: 7px 10px; font-size: 12px; box-shadow: 0 8px 24px #0008; display: grid; gap: 1px; min-width: 110px; }
+.chart-tip span { color: #4a5578; }
+.chart-table { margin-top: 10px; font-size: 12px; color: var(--muted); }
+.chart-table summary { cursor: pointer; font-weight: 700; }
 table.simple { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.simple th, table.simple td { text-align: left; padding: 10px 6px; border-bottom: 1px solid var(--line); }
 table.simple th { color: #96aeff; font-size: 10px; text-transform: uppercase; letter-spacing: .12em; }

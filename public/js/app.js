@@ -1,4 +1,4 @@
-import { icon, hydrateIcons, h, formatDuration, formatDate, formatTime, plural, artFor, generatedArt, trackCard } from './ui.js';
+import { icon, hydrateIcons, h, formatDuration, formatDate, formatTime, plural, artFor, trackCard, waveform } from './ui.js';
 
 const $ = (selector) => document.querySelector(selector);
 const LATEST_COUNT = 4;
@@ -79,21 +79,35 @@ const saveData = () => Boolean(navigator.connection?.saveData);
 // ================================================================ player
 const media = $('#media');
 const playerEl = $('#player');
-const player = { queue: [], index: -1, track: null, listened: 0, lastTime: 0, counted: false };
+const player = { queue: [], index: -1, track: null, listened: 0, lastTime: 0, counted: false, pendingSeek: null };
 
 function setPlayIcon(button, playing) {
   button.innerHTML = icon(playing ? 'pause' : 'play');
   button.setAttribute('aria-label', playing ? 'Pause' : 'Play');
 }
 
-function playTrack(track, queue) {
+// at: optional start position (0–1), e.g. when a waveform is clicked.
+function playTrack(track, queue, at = null) {
   if (player.track?.id === track.id) {
-    togglePlay();
+    if (at !== null) seekTo(at);
+    else togglePlay();
     return;
   }
+  player.pendingSeek = at;
   player.queue = queue?.length ? queue : [track];
   player.index = Math.max(0, player.queue.findIndex((t) => t.id === track.id));
   load(player.queue[player.index], true);
+}
+
+function seekTo(fraction) {
+  if (media.duration) media.currentTime = fraction * media.duration;
+  if (media.paused) media.play().catch(() => {});
+}
+
+function updateWaves() {
+  if (!player.track || !media.duration) return;
+  const fraction = media.currentTime / media.duration;
+  document.querySelectorAll(`.wave[data-wave="${player.track.id}"]`).forEach((el) => el.setProgress(fraction));
 }
 
 function load(track, autoplay) {
@@ -111,6 +125,16 @@ function load(track, autoplay) {
   title.textContent = track.title;
   title.href = track.status === 'draft' ? location.pathname : `/track/${track.id}`;
   $('#np-sub').textContent = [state.profile?.artistName || 'Surgthflur', track.album?.title || track.category].filter(Boolean).join(' · ');
+  const wave = $('#np-wave');
+  wave.hidden = !track.waveform;
+  wave.replaceChildren();
+  if (track.waveform) {
+    const el = waveform(track.waveform, { onSeek: seekTo });
+    el.dataset.wave = track.id;
+    wave.append(el);
+  }
+  $('#np-lyrics').hidden = !track.lyrics;
+  $('#np-lyrics-text').textContent = track.lyrics || '';
   $('#btn-prev').disabled = player.index <= 0 && player.queue.length <= 1;
   $('#btn-next').disabled = player.index >= player.queue.length - 1;
 
@@ -140,6 +164,7 @@ function step(direction) {
     return;
   }
   if (next < 0 || next >= player.queue.length) return;
+  player.pendingSeek = null;
   player.index = next;
   load(player.queue[next], true);
 }
@@ -263,6 +288,10 @@ function setupPlayer() {
   });
   media.addEventListener('loadedmetadata', () => {
     $('#t-dur').textContent = formatDuration(media.duration);
+    if (player.pendingSeek !== null) {
+      media.currentTime = player.pendingSeek * media.duration;
+      player.pendingSeek = null;
+    }
   });
   media.addEventListener('timeupdate', () => {
     const delta = media.currentTime - player.lastTime;
@@ -277,6 +306,7 @@ function setupPlayer() {
       setFill(seek);
       $('#t-cur').textContent = formatDuration(media.currentTime);
     }
+    updateWaves();
   });
   media.addEventListener('volumechange', () => {
     $('#btn-mute').innerHTML = icon(media.muted || media.volume === 0 ? 'mute' : 'volume');
@@ -483,7 +513,7 @@ function renderChips() {
 function matches(track) {
   if (state.filter !== 'All' && track.category !== state.filter) return false;
   if (!state.query) return true;
-  const haystack = [track.title, track.category, track.description, track.howMade, track.progressNote, track.album?.title]
+  const haystack = [track.title, track.category, track.description, track.howMade, track.progressNote, track.lyrics, track.album?.title]
     .filter(Boolean).join(' ').toLowerCase();
   return state.query.split(/\s+/).every((word) => haystack.includes(word));
 }
@@ -708,10 +738,34 @@ async function showTrack(id) {
   );
   if (!draft) actions.append(reactionButton(track, 'fire'), reactionButton(track, 'heart'));
 
+  let wave = null;
+  if (track.waveform) {
+    wave = waveform(track.waveform, {
+      label: `Seek in ${track.title}`,
+      onSeek: (fraction) => playTrack(track, queue.some((t) => t.id === track.id) ? queue : [track], fraction),
+    });
+    wave.dataset.wave = track.id;
+  }
+
   const prose = h('div', { class: 'prose' });
   if (track.description) prose.append(h('h3', {}, 'About this track'), h('p', {}, track.description));
   if (track.howMade) prose.append(h('h3', {}, 'How it was made'), h('p', {}, track.howMade));
   if (track.progressNote) prose.append(h('h3', {}, 'What changed / what I learned'), h('p', { class: 'note' }, track.progressNote));
+  if (track.lyrics) {
+    const lyrics = h('p', { class: 'lyrics' }, track.lyrics);
+    prose.append(h('h3', {}, 'Lyrics'), lyrics);
+    if (track.lyrics.split(/\r?\n/).length > 14 || track.lyrics.length > 700) {
+      lyrics.classList.add('clamped');
+      const toggle = h('button', { class: 'lyrics-toggle', type: 'button', 'aria-expanded': 'false' }, 'Show all lyrics');
+      toggle.addEventListener('click', () => {
+        const open = lyrics.classList.toggle('open');
+        lyrics.classList.toggle('clamped', !open);
+        toggle.textContent = open ? 'Show less' : 'Show all lyrics';
+        toggle.setAttribute('aria-expanded', String(open));
+      });
+      prose.append(toggle);
+    }
+  }
 
   const shareRow = draft ? null : h('div', { class: 'share-row' },
     h('a', { class: 'btn', href: `https://wa.me/?text=${encodeURIComponent(`${track.title} — ${absoluteUrl(`/track/${track.id}`)}`)}`, target: '_blank', rel: 'noopener noreferrer', html: icon('whatsapp') }, 'WhatsApp'),
@@ -736,6 +790,7 @@ async function showTrack(id) {
         h('div', { class: 'tag' }, h('span', {}, track.category), h('span', {}, '·'), h('span', {}, track.mediaType === 'video' ? 'Video' : 'Audio')),
         h('h1', {}, track.title),
         meta,
+        wave,
         actions,
         prose,
         shareRow,
@@ -797,6 +852,7 @@ function showPage(content, title) {
   hydrateIcons(page);
   watchVideos(page);
   markCurrent();
+  updateWaves();
   document.title = title;
   scrollTo({ top: 0, behavior: 'instant' });
   $('#main').focus({ preventScroll: true });

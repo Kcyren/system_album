@@ -27,6 +27,7 @@ A music showcase and installable app for **Surgthflur**: freestyles, mixes, shor
 ### 1. Create the Supabase project
 1. Sign in at [supabase.com](https://supabase.com) and click **New project**.
 2. Open **SQL Editor → New query**, paste everything from [`supabase/schema.sql`](supabase/schema.sql) and press **Run**. This creates the tables, the default categories (Freestyle, Mix, Video) and the `media` storage bucket.
+   Then do the same with each file in [`supabase/migrations/`](supabase/migrations/), in order. `002` adds lyrics, waveforms and weekly play stats.
 3. Go to **Authentication → Users → Add user → Create new user**. Enter Surgthflur's email and a strong password, and tick **Auto Confirm User**.
 4. Go to **Authentication → Sign In / Providers** and turn **off** "Allow new users to sign up". Nobody else needs an account.
 
@@ -49,21 +50,32 @@ npm run dev     # starts the site and restarts it automatically when you edit fi
 
 ---
 
-## Put it online (Render, free plan)
+## Put it online (Vercel)
 
-1. Push this project to GitHub (repo `system_album`).
-2. At [render.com](https://render.com) choose **New → Web Service** and pick the repo.
-3. Settings: **Build command** `npm install` · **Start command** `npm start`.
-4. Under **Environment**, add the same variables as your `.env`, plus:
-   - `NODE_ENV` = `production`
-   - `PUBLIC_URL` = your Render address, e.g. `https://system-album.onrender.com`
-5. Deploy. Every push to GitHub redeploys automatically.
+The repo includes [`vercel.json`](vercel.json), so Vercel runs the Node server as one serverless function ([`api/index.js`](api/index.js)) and serves `public/` from its CDN.
+
+1. In Vercel, import the GitHub repo `system_album`. Leave Framework Preset as **Other**, with no build command.
+2. Go to **Settings → Environment Variables** and add these for Production (and Preview if you use it):
+   - `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, `CREATOR_EMAIL`: the same values as your `.env`
+   - `PUBLIC_URL` = `https://studioalbum.vercel.app` (or your custom domain)
+3. Redeploy: open **Deployments → ⋯ → Redeploy**, or push to `main`. Environment variable changes only apply to new deployments.
+4. Open `https://studioalbum.vercel.app/api/health`. It should show `"configured":true`.
+
+### Connect the Vercel domain to Supabase
+In Supabase, open **Authentication → URL Configuration**:
+- **Site URL:** `https://studioalbum.vercel.app`
+- **Redirect URLs:** add
+  - `https://studioalbum.vercel.app/**`
+  - `http://localhost:3000/**` (for testing on your computer)
+
+Sign-in uses email and password through the server, so it works without these. They make sure any email Supabase sends, such as a password reset, links back to your site and not to `localhost`. If you add a custom domain later, add it here and update `PUBLIC_URL` in Vercel.
+
+### Where the creator signs in
+**https://studioalbum.vercel.app/studio** (also linked as "Creator Studio" in the site footer). Only the email in `CREATOR_EMAIL`, with a matching Supabase Auth user, can get in.
 
 Good to know:
-- Render's free plan sleeps after inactivity, so the first visit can take around 30 seconds. A paid instance (or Railway or Fly.io) avoids that.
-- All files live in Supabase, so the server doesn't need its own disk.
-- **Supabase Free** allows up to **50 MB per file** and 1 GB of storage in total. Short videos fit well. Upgrade, or export videos at 720p, if you need more.
-- Want a custom domain like `systemalbum.com`? Add it in Render, then update `PUBLIC_URL`.
+- **Supabase Free** allows up to **50 MB per file** and 1 GB of storage in total. Short videos fit well. Export long ones at 720p.
+- Uploads go directly from the browser to Supabase, so Vercel's request size limits don't apply.
 
 ---
 
@@ -78,6 +90,8 @@ Good to know:
 - Album pages with track order, total length and "Play album".
 - **Journey**: personal milestones, automatic milestones taken only from real uploads (first track, first mix, first video, 10th/25th/50th track…), a "Then & now" comparison, and a dated timeline. Undated recordings still appear everywhere else.
 - **Real play counts**: a play counts after about 5 seconds of actual listening, at most once per listener per track every 30 minutes.
+- **Waveforms** on track pages and in the full-screen player. Click to jump to any moment. They're made automatically in the Studio when you upload.
+- **Lyrics / bars** on track pages and in the full-screen player, and included in search.
 - An email follow form, with spam protection and an unsubscribe link for every follower.
 
 **Creator Studio** (`/studio`)
@@ -87,13 +101,19 @@ Good to know:
 - Edit the profile: photo, bio, homepage tagline, System Album intro, and TikTok/YouTube/Facebook links (only filled-in links appear).
 - Journey: add or edit milestones and pick the "Then & now" pair.
 - Manage categories, see followers and download them as CSV, view play and reaction stats, change the password.
+- A **plays per week** chart (last 12 weeks) and "Top this week" on the Overview.
+- Lyrics on each track, and a one-click "Create missing waveforms" for older uploads.
 
 ---
 
 ## Project layout
 
 ```
-server.js            starts the app, security headers
+server.js            local entry point (npm start / npm run dev)
+api/index.js         Vercel entry point (same app as a serverless function)
+vercel.json          Vercel routing
+src/app.js           the Express app, security headers
+views/               page templates (home, studio, 404)
 src/config.js        reads .env
 src/supabase.js      Supabase connection + file URLs
 src/auth.js          sign in/out, sessions, "creator only" guard
@@ -103,6 +123,7 @@ src/catalog.js       track/album formatting + journey calculations
 src/pages.js         pages + share previews, unsubscribe page
 public/              the website, studio, styles, icons, PWA files
 supabase/schema.sql  database setup (run once in Supabase)
+supabase/migrations/ later database updates (run each once, in order)
 scripts/check.js     `npm run check` setup checker
 scripts/make-icons.js regenerates the app icons
 ```
@@ -113,10 +134,7 @@ scripts/make-icons.js regenerates the app icons
 
 1. **Automatic new-release emails.** Connect Resend, Brevo or MailerLite so followers get an email when a track is published. Today you export the CSV.
 2. **Video thumbnails and compression.** Make smaller web versions of large phone videos automatically.
-3. **Waveform display** on track pages, drawn from the audio.
-4. **Lyrics / bars** field for freestyles, shown alongside playback.
-5. **Weekly stats chart** in the Studio, showing plays over time.
-6. **Comments or shout-outs**, with moderation.
-7. **Offline listening** for tracks you've saved in the installed app.
+3. **Comments or shout-outs**, with moderation.
+4. **Offline listening** for tracks you've saved in the installed app.
 
 Note: `index-html.html` is the original front-end demo, kept for reference. The live site is in `public/`.

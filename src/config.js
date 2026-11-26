@@ -12,7 +12,8 @@ const trimSlash = (value) => (value || '').trim().replace(/\/+$/, '');
 
 const config = {
   port: Number(env.PORT) || 3000,
-  production: env.NODE_ENV === 'production',
+  // Vercel always serves over HTTPS, so treat it as production too.
+  production: env.NODE_ENV === 'production' || Boolean(env.VERCEL),
 
   supabaseUrl: trimSlash(env.SUPABASE_URL),
   // Secret key (sb_secret_…) or the legacy service_role key. Server only!
@@ -34,7 +35,7 @@ const config = {
   maxUploadMb: Number(env.MAX_UPLOAD_MB) || 50,
 
   // Number of proxies in front of the app (Render, Railway, etc. use 1).
-  trustProxy: env.TRUST_PROXY !== undefined ? Number(env.TRUST_PROXY) || false : env.NODE_ENV === 'production' ? 1 : false,
+  trustProxy: env.TRUST_PROXY !== undefined ? Number(env.TRUST_PROXY) || false : env.NODE_ENV === 'production' || env.VERCEL ? 1 : false,
 };
 
 config.missing = [

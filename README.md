@@ -77,6 +77,16 @@ Sign-in uses email and password through the server, so it works without these. T
 - **Change the password while signed in:** Studio → **Account**.
 - Behind the scenes, a username becomes `username@systemalbum.app`, because Supabase needs an email-shaped login. Nothing is ever emailed there. When he has a real Gmail, set `CREATOR_EMAIL` to it, update the user's email in Supabase → Authentication → Users, and redeploy.
 
+### New-release emails (optional)
+1. Create a free account at [resend.com](https://resend.com) and make an **API key** (Sending access).
+2. Add these to `.env` **and** to Vercel → Environment Variables, then redeploy:
+   - `RESEND_API_KEY` = the key (`re_…`)
+   - `EMAIL_FROM` = e.g. `System Album <onboarding@resend.dev>` for testing
+3. Run [`supabase/migrations/003_featured_and_announcements.sql`](supabase/migrations/003_featured_and_announcements.sql) in Supabase.
+4. When publishing, tick **"Email followers when this is published"**. Each follower gets a message with a Listen button and an unsubscribe link. Nobody is emailed twice for the same track.
+
+**Important:** until you **verify your own domain** in Resend (Domains → Add, e.g. `systemalbum.com`, about $10/year), Resend only delivers to *your own* Resend account email. That's fine for testing. After verifying, change `EMAIL_FROM` to something like `System Album <music@systemalbum.com>`. Free plan: 100 emails/day, 3,000/month.
+
 ### Where the creator signs in
 **https://studioalbum.vercel.app/studio** (also linked as "Creator Studio" in the site footer). Only the email in `CREATOR_EMAIL`, with a matching Supabase Auth user, can get in.
 
@@ -110,6 +120,10 @@ Good to know:
 - Manage categories, see followers and download them as CSV, view play and reaction stats, change the password.
 - A **plays per week** chart (last 12 weeks) and "Top this week" on the Overview.
 - Lyrics on each track, and a one-click "Create missing waveforms" for older uploads.
+- **Smarter uploads:** clean titles from file names, file length/size/resolution shown before upload, warnings for very short or unplayable files, and a size check before uploading.
+- **Automatic video covers:** a frame from the video becomes the cover when none is chosen, or press "Use this moment as the cover".
+- **Featured track:** ★ Feature any published track for the homepage's spinning record. Otherwise it shows the newest upload.
+- **New-release emails** to followers when publishing (see above).
 
 ---
 
@@ -139,9 +153,8 @@ scripts/make-icons.js regenerates the app icons
 
 ## Ideas for next steps
 
-1. **Automatic new-release emails.** Connect Resend, Brevo or MailerLite so followers get an email when a track is published. Today you export the CSV.
-2. **Video thumbnails and compression.** Make smaller web versions of large phone videos automatically.
-3. **Comments or shout-outs**, with moderation.
-4. **Offline listening** for tracks you've saved in the installed app.
+1. **Video compression.** Make smaller web versions of large phone videos automatically.
+2. **Comments or shout-outs**, with moderation.
+3. **Offline listening** for tracks you've saved in the installed app.
 
 Note: `index-html.html` is the original front-end demo, kept for reference. The live site is in `public/`.

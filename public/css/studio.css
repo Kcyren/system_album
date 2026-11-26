@@ -59,6 +59,10 @@
 .pill { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; border-radius: 20px; padding: 3px 8px; }
 .pill.published { background: #12391f; color: #a8f0c6; }
 .pill.draft { background: #3a2a0b; color: #ffe2a3; }
+.pill.featured { background: #1b2d72; color: #c5d3ff; }
+.file-info { display: grid; gap: 6px; margin-top: 8px; font-size: 12px; color: #aab7d0; }
+.file-info:empty { display: none; }
+.file-info .warn { background: #3a2a0b; border: 1px solid #8c6a1f; color: #ffe2a3; padding: 9px 11px; border-radius: 6px; line-height: 1.5; }
 
 .editor { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(260px, .75fr); gap: 18px; align-items: start; }
 .preview-col { position: sticky; top: 16px; display: grid; gap: 14px; }

@@ -31,6 +31,14 @@ const fail = (msg) => {
   if (v2Error || dailyError) fail('Update 002 not installed (lyrics, waveforms, weekly stats) — run supabase/migrations/002_lyrics_waveform_stats.sql');
   else ok('Update 002 installed (lyrics, waveforms, weekly stats)');
 
+  const { error: v3a } = await db.from('profile').select('featured_track_id').limit(1);
+  const { error: v3b } = await db.from('tracks').select('announced_at').limit(1);
+  if (v3a || v3b) fail('Update 003 not installed (featured track, release emails) — run supabase/migrations/003_featured_and_announcements.sql');
+  else ok('Update 003 installed (featured track, release emails)');
+
+  if (config.resendApiKey && config.emailFrom) ok(`New-release emails: on (from ${config.emailFrom})`);
+  else console.log('  · New-release emails: off (optional — add RESEND_API_KEY and EMAIL_FROM)');
+
   const { error: rpcError } = await db.rpc('reaction_counts');
   if (rpcError) fail(`Function reaction_counts: ${rpcError.message}`);
   else ok('Database functions installed');

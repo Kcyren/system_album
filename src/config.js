@@ -33,6 +33,10 @@ const config = {
   // e.g. https://systemalbum.example.com — used for share links and previews.
   publicUrl: trimSlash(env.PUBLIC_URL),
 
+  // New-release emails (optional): a Resend.com API key and a sender address.
+  resendApiKey: (env.RESEND_API_KEY || '').trim(),
+  emailFrom: (env.EMAIL_FROM || '').trim(),
+
   // Supabase's free plan caps each file at 50 MB. Raise this if you upgrade.
   maxUploadMb: Number(env.MAX_UPLOAD_MB) || 50,
 

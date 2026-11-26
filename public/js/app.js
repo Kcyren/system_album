@@ -482,14 +482,19 @@ function renderHero() {
   if (p.tagline) $('#hero-text').textContent = p.tagline;
   $('#hero-overline').textContent = `${p.artistName} · independent sound`;
 
-  const latest = state.tracks[0];
-  if (!latest) return;
+  // The pinned "featured" track if there is one, otherwise the newest upload.
+  const featured = trackById(p.featuredTrackId);
+  const hero = featured || state.tracks[0];
+  if (!hero) return;
+  const kind = featured ? 'Featured' : 'Latest drop';
+  $('#hero-kind').textContent = kind;
+  $('#latest-label').textContent = kind;
   const label = $('#hero-label');
-  if (latest.coverUrl) label.replaceChildren(h('img', { src: latest.coverUrl, alt: '' }));
+  if (hero.coverUrl) label.replaceChildren(h('img', { src: hero.coverUrl, alt: '' }));
   const button = $('#latest-play');
-  button.replaceChildren(h('span', { class: 'dot', html: icon('play') }), h('span', { class: 'txt' }, latest.title));
-  button.setAttribute('aria-label', `Play the latest drop: ${latest.title}`);
-  button.onclick = () => playTrack(latest, state.tracks.slice(0, LATEST_COUNT));
+  button.replaceChildren(h('span', { class: 'dot', html: icon('play') }), h('span', { class: 'txt' }, hero.title));
+  button.setAttribute('aria-label', `Play ${kind.toLowerCase()}: ${hero.title}`);
+  button.onclick = () => playTrack(hero, featured ? [hero, ...state.tracks.filter((t) => t.id !== hero.id).slice(0, LATEST_COUNT)] : state.tracks.slice(0, LATEST_COUNT));
   $('#latest-drop').hidden = false;
 }
 

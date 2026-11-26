@@ -82,29 +82,107 @@ function imagePicker({ label, currentUrl, round = false, hint }) {
   const img = h('img', { alt: '', src: currentUrl || null, hidden: !currentUrl });
   const remove = input({ type: 'checkbox' });
   const removeLabel = h('label', { class: 'check', hidden: !currentUrl }, remove, 'Remove image');
+  const autoNote = h('span', { class: 'hint', hidden: true }, 'Made from the video. Choose an image above to use your own.');
+  let auto = null; // { blob, url } — a cover captured from the video
+  const listeners = [];
+  const changed = () => listeners.forEach((fn) => fn());
+
   file.addEventListener('change', () => {
     const chosen = file.files[0];
     if (chosen) {
       img.src = URL.createObjectURL(chosen);
       img.hidden = false;
       remove.checked = false;
+      autoNote.hidden = true;
     }
+    changed();
   });
   remove.addEventListener('change', () => {
-    img.hidden = remove.checked || (!file.files[0] && !currentUrl);
+    img.hidden = remove.checked || (!file.files[0] && !currentUrl && !auto);
+    changed();
   });
   const wrap = field(label, file, { optional: true, hint });
-  wrap.append(h('div', { class: `img-preview${round ? ' round' : ''}` }, img, removeLabel));
+  wrap.append(h('div', { class: `img-preview${round ? ' round' : ''}` }, img, h('div', {}, removeLabel, autoNote)));
   return {
     el: wrap,
-    file: () => file.files[0] || null,
+    file: () => file.files[0] || (auto && !remove.checked ? auto.blob : null),
     removed: () => remove.checked,
-    onChange: (fn) => {
-      file.addEventListener('change', fn);
-      remove.addEventListener('change', fn);
+    hasImage: () => Boolean(file.files[0] || currentUrl || auto),
+    hasOwnImage: () => Boolean(file.files[0] || currentUrl),
+    // Use a picture made from the video (only while no image was chosen).
+    setAuto(blob) {
+      if (!blob || file.files[0]) return;
+      if (auto) URL.revokeObjectURL(auto.url);
+      auto = { blob, url: URL.createObjectURL(blob) };
+      img.src = auto.url;
+      img.hidden = false;
+      remove.checked = false;
+      removeLabel.hidden = false;
+      autoNote.hidden = false;
+      changed();
     },
-    previewUrl: () => (remove.checked ? null : file.files[0] ? img.src : currentUrl || null),
+    onChange: (fn) => listeners.push(fn),
+    previewUrl: () => (remove.checked ? null : file.files[0] ? img.src : auto ? auto.url : currentUrl || null),
   };
+}
+
+// Grabs one frame of a video as a JPEG (max 1280px wide).
+function frameFromVideo(video) {
+  try {
+    if (!video.videoWidth) return Promise.resolve(null);
+    const scale = Math.min(1, 1280 / video.videoWidth);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.86));
+  } catch {
+    return Promise.resolve(null); // e.g. the browser can't read this video
+  }
+}
+
+// Loads a video quietly and captures a frame about a quarter of the way in.
+function autoCover(src) {
+  return new Promise((resolve) => {
+    const video = h('video', { muted: true, playsinline: true, preload: 'auto', crossorigin: 'anonymous' });
+    video.muted = true;
+    const finish = async () => {
+      resolve(await frameFromVideo(video));
+      video.removeAttribute('src');
+      video.load();
+    };
+    const timer = setTimeout(() => resolve(null), 15000);
+    video.addEventListener('loadedmetadata', () => {
+      const at = Math.min(Math.max(video.duration * 0.25, 0.1), 3);
+      video.addEventListener('seeked', () => { clearTimeout(timer); finish(); }, { once: true });
+      video.currentTime = Number.isFinite(at) ? at : 0.1;
+    }, { once: true });
+    video.addEventListener('error', () => { clearTimeout(timer); resolve(null); }, { once: true });
+    video.src = src;
+  });
+}
+
+// "Roblox 2026-11-09T09_50_29.940Z.mp4" -> "Roblox"
+function cleanTitle(filename) {
+  let name = filename.replace(/\.[^.]+$/, '');
+  name = name
+    .replace(/\d{4}[-_ .]?\d{2}[-_ .]?\d{2}[T _-]?\d{2}[-_ .:]?\d{2}[-_ .:]?\d{2}(\.\d+)?Z?/gi, ' ') // date + time stamps
+    .replace(/_+/g, ' ')
+    .replace(/\b\d{8}[ -]?\d{6}\b/g, ' ')
+    .replace(/\b\d{4}[- ]\d{2}[- ]\d{2}\b/g, ' ')
+    .replace(/\b(at\s+)?\d{1,2}[.:]\d{2}([.:]\d{2})?\s*(AM|PM)?\b/gi, ' ') // "at 9.50.29 PM"
+    .replace(/\b(IMG|VID|MOV|PXL|DSC|REC|WA|AUD|VOICE)[ -]?\d*\b/gi, ' ')
+    .replace(/\b(screen ?recording|recording|copy|final|edit|export(ed)?)\b/gi, ' ')
+    .replace(/\(\d+\)/g, ' ')
+    .replace(/\s-\s|-{2,}/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^[-–.,\s]+|[-–.,\s]+$/g, '');
+  return name.slice(0, 120);
+}
+
+function formatBytes(bytes) {
+  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
 // Returns the value to send for an image: a new path, null (removed), or undefined (unchanged).
@@ -362,6 +440,7 @@ views.tracks = (editId) => {
       h('div', { class: 'row-title' }, t.title),
       h('div', { class: 'row-sub' },
         h('span', { class: `pill ${t.status}` }, t.status),
+        S.profile.featuredTrackId === t.id ? h('span', { class: 'pill featured' }, '★ Featured') : null,
         h('span', {}, t.category),
         t.album ? h('span', {}, t.album.title) : null,
         t.recordedDate ? h('span', {}, formatDate(t.recordedDate)) : null,
@@ -369,6 +448,10 @@ views.tracks = (editId) => {
       ),
     ),
     h('div', { class: 'row-actions' },
+      S.features.featured && t.status === 'published' ? h('button', {
+        class: 'btn small', type: 'button',
+        onclick: () => setFeatured(S.profile.featuredTrackId === t.id ? '' : t.id),
+      }, S.profile.featuredTrackId === t.id ? 'Unfeature' : '★ Feature') : null,
       h('a', { class: 'btn small', href: `/track/${t.id}`, target: '_blank', html: icon('eye') }, t.status === 'draft' ? 'Preview' : 'View'),
       h('button', { class: 'btn small', type: 'button', html: icon('edit'), onclick: () => openTab('tracks', t.id) }, 'Edit'),
       h('button', { class: 'btn small danger', type: 'button', html: icon('trash'), onclick: () => deleteTrack(t) }, 'Delete'),
@@ -377,6 +460,16 @@ views.tracks = (editId) => {
   root.append(h('div', { class: 'panel' }, list));
   return root;
 };
+
+async function setFeatured(trackId) {
+  try {
+    S.profile = await api('/api/studio/profile', { method: 'PATCH', body: { featuredTrackId: trackId } });
+    toast(trackId ? 'Featured on the homepage' : 'Homepage shows the newest upload again');
+    openTab(S.tab);
+  } catch (e) {
+    toast(e.message);
+  }
+}
 
 async function deleteTrack(track) {
   if (!confirm(`Delete “${track.title}”? The audio/video and cover will be removed permanently.`)) return;
@@ -425,20 +518,58 @@ function trackEditor(track) {
   const cardPreview = h('div', { class: 'preview-card' });
   const progress = h('div', { class: 'progress', hidden: true }, h('i'));
   const status = h('p', { class: 'status', role: 'status' });
+  const fileInfo = h('div', { class: 'file-info', role: 'status' });
+  const maxMb = S.features.maxUploadMb || 50;
+  const announce = input({ type: 'checkbox', checked: track?.status !== 'published' });
+  let autoTitle = '';
+
+  // Length / size / resolution, plus friendly warnings about the chosen file.
+  function describeFile(el, chosen) {
+    const parts = [];
+    if (Number.isFinite(el.duration)) parts.push(`Length ${formatDuration(el.duration)}`);
+    if (chosen) parts.push(formatBytes(chosen.size));
+    if (el.videoWidth) parts.push(`${el.videoWidth}×${el.videoHeight}`);
+    const notes = [h('span', {}, parts.join(' · '))];
+    if (chosen && Number.isFinite(el.duration) && el.duration < 10) {
+      const secs = Math.max(1, Math.round(el.duration));
+      notes.push(h('span', { class: 'warn' }, `Heads up: this file is only ${secs} second${secs === 1 ? '' : 's'} long. Is it the full recording?`));
+    }
+    fileInfo.replaceChildren(...notes);
+  }
 
   function showMedia(url, type) {
     if (!url) {
       mediaPreview.replaceChildren();
       return;
     }
+    const chosen = mediaFile.files[0];
     const el = type === 'video'
-      ? h('video', { src: url, controls: true, playsinline: true, preload: 'metadata', poster: cover.previewUrl() })
-      : h('audio', { src: url, controls: true, preload: 'metadata' });
+      ? h('video', { controls: true, playsinline: true, preload: 'metadata', poster: cover.previewUrl(), crossorigin: 'anonymous' })
+      : h('audio', { controls: true, preload: 'metadata' });
     el.addEventListener('loadedmetadata', () => {
-      if (mediaFile.files[0]) duration = el.duration;
+      if (chosen) duration = el.duration;
+      describeFile(el, chosen);
       updateCard();
     });
-    mediaPreview.replaceChildren(el);
+    el.addEventListener('error', () => {
+      if (!chosen) return;
+      fileInfo.replaceChildren(h('span', { class: 'warn' }, `Your browser can't play this file, so visitors probably can't either. Export it as MP4 (H.264) or MP3 and try again. (${formatBytes(chosen.size)})`));
+    });
+    el.src = url;
+    const tools = [];
+    if (type === 'video') {
+      tools.push(h('button', {
+        class: 'btn small', type: 'button', style: 'margin-top:10px',
+        onclick: async () => {
+          const blob = await frameFromVideo(el);
+          if (blob) {
+            cover.setAuto(blob);
+            toast('Cover set from this moment of the video');
+          } else toast('Could not grab a picture from this video.');
+        },
+      }, 'Use this moment as the cover'));
+    }
+    mediaPreview.replaceChildren(el, ...tools);
   }
 
   function currentType() {
@@ -466,12 +597,25 @@ function trackEditor(track) {
 
   mediaFile.addEventListener('change', () => {
     const chosen = mediaFile.files[0];
+    fileInfo.replaceChildren();
+    if (chosen && chosen.size > maxMb * 1024 * 1024) {
+      fileInfo.replaceChildren(h('span', { class: 'warn' }, `This file is ${formatBytes(chosen.size)}, over the ${maxMb} MB limit. Export a shorter clip or a smaller size (720p works well) and choose it again.`));
+      mediaFile.value = '';
+      return;
+    }
     if (localMediaUrl) URL.revokeObjectURL(localMediaUrl);
     localMediaUrl = chosen ? URL.createObjectURL(chosen) : null;
     duration = null;
     wavePromise = chosen && S.features.waveform ? computeWaveform(chosen) : null;
     showMedia(localMediaUrl || track?.mediaUrl, currentType());
-    if (chosen && !title.value.trim()) title.value = chosen.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').slice(0, 120);
+    if (chosen && (!title.value.trim() || title.value === autoTitle)) {
+      autoTitle = cleanTitle(chosen.name);
+      title.value = autoTitle;
+    }
+    // No cover yet? Make one from the video automatically.
+    if (chosen && chosen.type.startsWith('video/') && !cover.hasOwnImage()) {
+      autoCover(localMediaUrl).then((blob) => blob && mediaFile.files[0] === chosen && cover.setAuto(blob));
+    }
     updateCard();
   });
   for (const el of [title, category, description, date]) el.addEventListener('input', updateCard);
@@ -482,6 +626,8 @@ function trackEditor(track) {
     if (!title.value.trim()) return setStatus(status, 'Please add a title.', 'error');
     if (!category.value) return setStatus(status, 'Please choose a category.', 'error');
     if (isNew && !mediaFile.files[0]) return setStatus(status, 'Please choose an audio or video file.', 'error');
+    if (mediaFile.files[0] && duration && duration < 5
+      && !confirm(`This recording is only ${Math.max(1, Math.round(duration))} second(s) long. Save it anyway?`)) return;
 
     const buttons = form.querySelectorAll('button');
     buttons.forEach((b) => { b.disabled = true; });
@@ -504,6 +650,7 @@ function trackEditor(track) {
         status: nextStatus,
       };
       if (S.features.lyrics) body.lyrics = lyrics.value;
+      if (canAnnounce && nextStatus === 'published' && announce.checked) body.announce = true;
       if (mediaFile.files[0] && wavePromise) {
         setStatus(status, 'Reading the waveform…');
         const peaks = await withTimeout(wavePromise, 20000);
@@ -523,7 +670,10 @@ function trackEditor(track) {
         : await api(`/api/studio/tracks/${track.id}`, { method: 'PATCH', body });
       showProgress(1);
       await refreshTracks();
-      toast(nextStatus === 'published' ? 'Published! It is live on System Album.' : 'Saved as a draft');
+      let message = nextStatus === 'published' ? 'Published! It is live on System Album.' : 'Saved as a draft';
+      if (saved.announcement?.sent) message += ` Emailed ${plural(saved.announcement.sent, 'follower')}.`;
+      if (saved.announcement?.error) message += ` Email not sent: ${saved.announcement.error}`;
+      toast(message);
       openTab('tracks', saved.id);
     } catch (e) {
       setStatus(status, e.message, 'error');
@@ -534,6 +684,8 @@ function trackEditor(track) {
   }
 
   const published = track?.status === 'published';
+  // Offer the release email the first time a track goes live.
+  const canAnnounce = Boolean(S.features.emails) && !track?.announcedAt;
   const actions = h('div', { class: 'form-actions' },
     h('button', { class: 'btn primary', type: 'button', onclick: () => save('published') }, published ? 'Save changes' : 'Publish'),
     h('button', { class: 'btn', type: 'button', onclick: () => save('draft') }, published ? 'Unpublish (make draft)' : 'Save draft'),
@@ -550,6 +702,7 @@ function trackEditor(track) {
       optional: !isNew,
       hint: 'MP3, M4A, WAV, OGG, FLAC, MP4, WEBM or MOV. Keep files under your storage plan limit (50 MB on Supabase Free).',
     }),
+    fileInfo,
     cover.el,
     field('About this track', description, { optional: true }),
     field('How it was made', howMade, { optional: true }),
@@ -558,6 +711,7 @@ function trackEditor(track) {
     h('div', { class: 'field-grid' }, field('Recording date', date, { optional: true }), field('Recording time', time, { optional: true })),
     field('Album', album, { optional: true }),
     progress,
+    canAnnounce ? h('label', { class: 'check', style: 'margin-top:18px' }, announce, 'Email followers when this is published') : null,
     actions,
     status,
   );
@@ -587,6 +741,10 @@ function trackEditor(track) {
 
   showMedia(track?.mediaUrl, track?.mediaType);
   updateCard();
+  // Older video without a cover: offer one made from the video (saved with the next save).
+  if (track?.mediaType === 'video' && !track.coverUrl) {
+    autoCover(track.mediaUrl).then((blob) => blob && !cover.hasOwnImage() && cover.setAuto(blob));
+  }
   return h('div', { class: 'editor' }, form, previewCol);
 }
 
@@ -827,6 +985,7 @@ views.profile = () => {
   const youtube = input({ type: 'url', value: p.youtubeUrl || '', placeholder: 'https://www.youtube.com/@…' });
   const facebook = input({ type: 'url', value: p.facebookUrl || '', placeholder: 'https://www.facebook.com/…' });
   const photo = imagePicker({ label: 'Profile photo', currentUrl: p.photoUrl, round: true });
+  const featured = select([['', 'Newest upload (automatic)'], ...S.tracks.filter((t) => t.status === 'published').map((t) => [t.id, t.title])], p.featuredTrackId || '', { disabled: !S.features.featured });
   const status = h('p', { class: 'status', role: 'status' });
 
   return h('div', {}, head('Profile', 'Everything here is optional. Social links only show on the site if you add them.'),
@@ -840,6 +999,7 @@ views.profile = () => {
             artistName: artistName.value, tagline: tagline.value, bio: bio.value, siteIntro: siteIntro.value,
             tiktokUrl: tiktok.value, youtubeUrl: youtube.value, facebookUrl: facebook.value,
           };
+          if (S.features.featured) body.featuredTrackId = featured.value;
           const photoPath = await imageValue(photo, 'photo');
           if (photoPath !== undefined) body.photoPath = photoPath;
           S.profile = await api('/api/studio/profile', { method: 'PATCH', body });
@@ -852,6 +1012,7 @@ views.profile = () => {
     },
     photo.el,
     h('div', { class: 'field-grid' }, field('Artist name *', artistName), field('Homepage tagline', tagline, { optional: true })),
+    field('Featured on the homepage', featured, { optional: true, hint: S.features.featured ? 'The track in the big spinning record. Automatic = always the newest upload.' : 'Needs database update 003: run supabase/migrations/003_featured_and_announcements.sql in Supabase.' }),
     field('About Surgthflur', bio, { optional: true }),
     field('About System Album', siteIntro, { optional: true }),
     field('TikTok link', tiktok, { optional: true }),
@@ -920,8 +1081,12 @@ views.followers = () => {
     h('a', { class: 'btn', href: '/api/studio/subscribers.csv', html: icon('download') }, 'Download CSV')));
   const body = h('div', { class: 'panel' }, h('p', { class: 'muted' }, 'Loading…'));
   root.append(body, h('div', { class: 'panel' },
-    h('h3', {}, 'Sending updates'),
-    h('p', { class: 'muted small' }, 'Emails are not sent automatically yet. Download the CSV (it includes a personal unsubscribe link for each person) and import it into a mailing tool such as Brevo, MailerLite or Buttondown — or ask to connect one so new releases email followers automatically.')));
+    h('h3', {}, 'New-release emails'),
+    h('p', { class: 'muted small' }, {
+      ready: '✔ Ready. When you publish a track, tick “Email followers when this is published” and everyone here gets a message with a Listen button and an unsubscribe link.',
+      'needs-migration': 'Almost ready: run supabase/migrations/003_featured_and_announcements.sql in the Supabase SQL Editor.',
+      'not-configured': 'Not set up yet. Add RESEND_API_KEY and EMAIL_FROM to the server settings (see README → New-release emails). Until then you can download the CSV above and use any mailing tool.',
+    }[S.features.emailSetup] || '')));
   api('/api/studio/subscribers').then((rows) => {
     if (!rows.length) {
       body.replaceChildren(h('p', { class: 'muted' }, 'No followers yet. The follow form is at the bottom of the homepage.'));

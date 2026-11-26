@@ -12,18 +12,20 @@ const TRACK_FIELDS =
 let featureCache = null;
 async function schemaFeatures() {
   const cached = featureCache;
-  if (cached && ((cached.value.v2 && cached.value.stats) || Date.now() - cached.at < 60 * 1000)) return cached.value;
-  const [tracksCheck, statsCheck] = await Promise.all([
+  if (cached && ((cached.value.v2 && cached.value.stats && cached.value.v3) || Date.now() - cached.at < 60 * 1000)) return cached.value;
+  const [tracksCheck, statsCheck, v3Check] = await Promise.all([
     db.from('tracks').select('lyrics,waveform').limit(1),
     db.from('play_daily').select('day').limit(1),
+    db.from('profile').select('featured_track_id').limit(1).then(async (r) => (r.error ? r : db.from('tracks').select('announced_at').limit(1))),
   ]);
-  const value = { v2: !tracksCheck.error, stats: !statsCheck.error };
+  const value = { v2: !tracksCheck.error, stats: !statsCheck.error, v3: !v3Check.error };
   featureCache = { value, at: Date.now() };
   return value;
 }
 
 async function trackFields() {
-  return (await schemaFeatures()).v2 ? `${TRACK_FIELDS},lyrics,waveform` : TRACK_FIELDS;
+  const { v2, v3 } = await schemaFeatures();
+  return TRACK_FIELDS + (v2 ? ',lyrics,waveform' : '') + (v3 ? ',announced_at' : '');
 }
 
 function mapTrack(row, reactionTotals = {}) {
@@ -49,6 +51,7 @@ function mapTrack(row, reactionTotals = {}) {
     plays: Number(row.plays) || 0,
     reactions: { fire: reactionTotals[row.id]?.fire || 0, heart: reactionTotals[row.id]?.heart || 0 },
     publishedAt: row.published_at,
+    announcedAt: row.announced_at ?? null,
     createdAt: row.created_at,
   };
 }

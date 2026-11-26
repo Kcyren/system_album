@@ -6,6 +6,7 @@ const { db, storage, fileUrl, must, removeFiles } = require('./supabase');
 const { requireCreator, sameOrigin } = require('./auth');
 const { schemaFeatures, trackFields, mapTrack, reactionTotals } = require('./catalog');
 const { loadProfile } = require('./public-api');
+const { emailsEnabled, announceTrack } = require('./email');
 const { HttpError, bad, text, dateValue, timeValue, urlValue, idValue, randomId } = require('./util');
 
 const router = express.Router();
@@ -109,8 +110,16 @@ router.get('/overview', async (req, res) => {
 
 // Which optional features the database supports (see supabase/migrations).
 router.get('/features', async (req, res) => {
-  const { v2, stats } = await schemaFeatures();
-  res.json({ lyrics: v2, waveform: v2, stats });
+  const { v2, stats, v3 } = await schemaFeatures();
+  res.json({
+    lyrics: v2,
+    waveform: v2,
+    stats,
+    featured: v3,
+    emails: v3 && emailsEnabled(),
+    emailSetup: emailsEnabled() ? (v3 ? 'ready' : 'needs-migration') : 'not-configured',
+    maxUploadMb: config.maxUploadMb,
+  });
 });
 
 // ============================================================ weekly stats
@@ -231,11 +240,22 @@ async function trackInput(body, existing) {
   return out;
 }
 
+// Sends the new-release email when asked and the track is live for the first time.
+async function maybeAnnounce(req, track) {
+  if (!req.body?.announce || track.status !== 'published' || track.announcedAt) return undefined;
+  if (!(await schemaFeatures()).v3) return { error: 'Run supabase/migrations/003_featured_and_announcements.sql first.' };
+  const result = await announceTrack(req, track);
+  if (result.sent) track.announcedAt = new Date().toISOString();
+  return result;
+}
+
 router.post('/tracks', async (req, res) => {
   const body = { status: 'draft', ...req.body };
   const input = await trackInput(body, null);
   const row = must(await db.from('tracks').insert(input).select(await trackFields()).single());
-  res.status(201).json(mapTrack(row));
+  const track = mapTrack(row);
+  track.announcement = await maybeAnnounce(req, track);
+  res.status(201).json(track);
 });
 
 router.patch('/tracks/:id', async (req, res) => {
@@ -249,7 +269,9 @@ router.patch('/tracks/:id', async (req, res) => {
     input.media_path && input.media_path !== existing.media_path ? existing.media_path : null,
     'cover_path' in input && input.cover_path !== existing.cover_path ? existing.cover_path : null,
   ]);
-  res.json(mapTrack(row));
+  const track = mapTrack(row);
+  track.announcement = await maybeAnnounce(req, track);
+  res.json(track);
 });
 
 router.delete('/tracks/:id', async (req, res) => {
@@ -365,6 +387,7 @@ function mapStudioProfile(p) {
     facebookUrl: p.facebook_url,
     compareEarlyId: p.compare_early_id,
     compareRecentId: p.compare_recent_id,
+    featuredTrackId: p.featured_track_id ?? null,
   };
 }
 
@@ -387,8 +410,10 @@ router.patch('/profile', async (req, res) => {
   if (has('photoPath')) {
     out.photo_path = body.photoPath === existing.photo_path ? existing.photo_path : await checkUpload(body.photoPath, 'photo', 'Profile photo');
   }
-  for (const [key, column] of [['compareEarlyId', 'compare_early_id'], ['compareRecentId', 'compare_recent_id']]) {
+  const { v3 } = await schemaFeatures();
+  for (const [key, column] of [['compareEarlyId', 'compare_early_id'], ['compareRecentId', 'compare_recent_id'], ['featuredTrackId', 'featured_track_id']]) {
     if (!has(key)) continue;
+    if (column === 'featured_track_id' && !v3) throw bad('Featuring a track needs database update 003 (supabase/migrations/003_featured_and_announcements.sql).');
     const trackId = idValue(body[key], 'Comparison track');
     if (trackId) must(await db.from('tracks').select('id').eq('id', trackId).maybeSingle(), 'Comparison track not found.');
     out[column] = trackId;

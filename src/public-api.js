@@ -25,6 +25,7 @@ function publicProfile(p) {
     bio: p.bio || null,
     siteIntro: p.site_intro || null,
     photoUrl: fileUrl(p.photo_path),
+    featuredTrackId: p.featured_track_id ?? null,
     socials,
   };
 }

@@ -134,7 +134,7 @@ Good to know:
 ---
 
 ## Logos
-The original logo designs are in [](design/).  builds the site versions in : the ring mark (header, footer, record label), the full animated logo (opening/refresh screen) and the SURGTHFLUR wordmark (top of the homepage).  redraws the app icons.
+The original logo designs are in [`design/`](design/). `npm run logo` builds the site versions in `public/brand/`: the ring mark (header, footer, record label), the full animated logo (opening/refresh screen) and the SURGTHFLUR wordmark (top of the homepage). `npm run icons` redraws the app icons.
 
 ## Project layout
 

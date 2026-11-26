@@ -105,7 +105,10 @@ export function generatedArt(seed, label) {
 
 export function artFor(item, { alt = true } = {}) {
   if (item.coverUrl) {
-    return h('img', { src: item.coverUrl, alt: alt ? `Artwork for ${item.title}` : '', loading: 'lazy', decoding: 'async' });
+    const img = h('img', { src: item.coverUrl, alt: alt ? `Artwork for ${item.title}` : '', loading: 'lazy', decoding: 'async' });
+    // If the image can't load, show the generated cover instead of a broken icon.
+    img.addEventListener('error', () => img.replaceWith(generatedArt(item.id, item.title)), { once: true });
+    return img;
   }
   return generatedArt(item.id, item.title);
 }

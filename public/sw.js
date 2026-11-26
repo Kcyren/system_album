@@ -1,7 +1,7 @@
 // System Album service worker: makes the site installable and keeps the
 // app shell available offline. Music/video and API data always come from
 // the network so visitors never see stale tracks or fake numbers.
-const VERSION = 'sa-v2';
+const VERSION = 'sa-v3';
 const SHELL = [
   '/',
   '/css/site.css',
@@ -39,17 +39,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static files: serve from cache, refresh in the background.
+  // Static files: always try the network first so updates show immediately,
+  // and fall back to the saved copy when offline.
   event.respondWith(
-    caches.open(VERSION).then(async (cache) => {
-      const cached = await cache.match(request);
-      const network = fetch(request)
-        .then((response) => {
-          if (response.ok) cache.put(request, response.clone());
-          return response;
-        })
-        .catch(() => cached);
-      return cached || network;
-    }),
+    fetch(request)
+      .then((response) => {
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(VERSION).then((cache) => cache.put(request, copy));
+        }
+        return response;
+      })
+      .catch(() => caches.match(request).then((cached) => cached || Response.error())),
   );
 });

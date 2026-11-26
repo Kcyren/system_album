@@ -320,7 +320,9 @@ function setupPlayer() {
     }
   });
   media.addEventListener('error', () => {
-    if (player.track) toast('This recording could not be loaded.');
+    if (!player.track) return;
+    playerEl.classList.remove('is-video'); // show the artwork instead of a black box
+    toast('This recording could not be loaded. Please try again in a moment.');
   });
 
   document.addEventListener('keydown', (event) => {

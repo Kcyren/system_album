@@ -9,7 +9,9 @@ app.disable('x-powered-by');
 if (config.trustProxy) app.set('trust proxy', config.trustProxy);
 
 // ------------------------------------------------------------ security headers
-const supabase = config.supabaseUrl || '';
+// Always allow Supabase (files, uploads) even if SUPABASE_URL is missing or
+// changes later — otherwise covers and recordings silently fail to load.
+const supabase = [...new Set([config.supabaseUrl, 'https://*.supabase.co'].filter(Boolean))].join(' ');
 const csp = [
   "default-src 'self'",
   "script-src 'self'",

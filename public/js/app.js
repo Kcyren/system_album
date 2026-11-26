@@ -1,4 +1,5 @@
 import { icon, hydrateIcons, h, formatDuration, formatDate, formatTime, plural, artFor, trackCard, waveform } from './ui.js';
+import { initFx, fxGesture, watchLeds } from './fx.js';
 
 const $ = (selector) => document.querySelector(selector);
 const LATEST_COUNT = 4;
@@ -88,6 +89,7 @@ function setPlayIcon(button, playing) {
 
 // at: optional start position (0–1), e.g. when a waveform is clicked.
 function playTrack(track, queue, at = null) {
+  fxGesture(); // start the LED/beat effects from this click
   if (player.track?.id === track.id) {
     if (at !== null) seekTo(at);
     else togglePlay();
@@ -153,6 +155,7 @@ function load(track, autoplay) {
 
 function togglePlay() {
   if (!player.track) return;
+  fxGesture();
   if (media.paused) media.play().catch(() => {});
   else media.pause();
 }
@@ -241,6 +244,9 @@ function countPlay(track) {
 }
 
 function setupPlayer() {
+  // Needed so the LED effects can "hear" the music (Supabase allows this).
+  media.crossOrigin = 'anonymous';
+  initFx(media);
   const seek = $('#seek');
   const volume = $('#volume');
   let seeking = false;
@@ -855,6 +861,7 @@ function showPage(content, title) {
   page.replaceChildren(content);
   hydrateIcons(page);
   watchVideos(page);
+  watchLeds(page);
   markCurrent();
   updateWaves();
   document.title = title;

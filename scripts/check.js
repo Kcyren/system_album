@@ -42,6 +42,10 @@ const fail = (msg) => {
   if (v4a || v4b || v4c) fail('Update 004 not installed (shout-outs, live listeners, synced lyrics) — run supabase/migrations/004_shoutouts_listeners_synced_lyrics.sql');
   else ok('Update 004 installed (shout-outs, live listeners, synced lyrics)');
 
+  const { error: v5 } = await db.rpc('hit_rate_limit', { p_key: 'setup-check', p_window_seconds: 1, p_max: 1000 });
+  if (v5) fail('Update 005 not installed (shared spam protection) — run supabase/migrations/005_shared_rate_limits.sql');
+  else ok('Update 005 installed (shared spam protection)');
+
   if (config.resendApiKey && config.emailFrom) ok(`New-release emails: on (from ${config.emailFrom})`);
   else console.log('  · New-release emails: off (optional — add RESEND_API_KEY and EMAIL_FROM)');
 

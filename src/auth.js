@@ -3,7 +3,8 @@
 const express = require('express');
 const config = require('./config');
 const { db, authClient } = require('./supabase');
-const { HttpError, parseCookies, rateLimiter, limit, text } = require('./util');
+const { HttpError, parseCookies, text } = require('./util');
+const { guard } = require('./ratelimit');
 
 const ACCESS_COOKIE = 'sa_access';
 const REFRESH_COOKIE = 'sa_refresh';
@@ -91,11 +92,10 @@ async function requireCreator(req, res, next) {
 }
 
 const router = express.Router();
-const loginLimiter = rateLimiter(15 * 60 * 1000, 8);
 
 router.use(sameOrigin);
 
-router.post('/login', limit(loginLimiter, 'Too many sign-in attempts. Please wait 15 minutes.'), async (req, res) => {
+router.post('/login', guard('login', 15 * 60 * 1000, 8, 'Too many sign-in attempts. Please wait 15 minutes.'), async (req, res) => {
   if (!config.creatorEmails.length) {
     throw new HttpError(503, 'No creator account is set up yet. Add CREATOR_EMAIL (a username or email) to the server settings.');
   }

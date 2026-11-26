@@ -4,6 +4,7 @@ const express = require('express');
 const { db, fileUrl, must } = require('./supabase');
 const { publishedTracks, publicAlbums, buildJourney, hotRanks, schemaFeatures } = require('./catalog');
 const { HttpError, rateLimiter, limit, text, idValue } = require('./util');
+const { guard, allow } = require('./ratelimit');
 
 const router = express.Router();
 
@@ -60,17 +61,19 @@ setInterval(() => {
   for (const [key, at] of recentPlays) if (at < cutoff) recentPlays.delete(key);
 }, 5 * 60 * 1000).unref();
 
-router.post('/plays/:id', limit(rateLimiter(60 * 60 * 1000, 200)), async (req, res) => {
+router.post('/plays/:id', guard('plays', 60 * 60 * 1000, 200), async (req, res) => {
   const id = idValue(req.params.id, 'Track');
   const key = `${req.ip}|${id}`;
   if (recentPlays.has(key)) return res.json({ counted: false });
   recentPlays.set(key, Date.now());
+  // Same listener + same track counts once per 30 minutes, on every server copy.
+  if (!(await allow('play', req, 30 * 60 * 1000, 1, id))) return res.json({ counted: false });
   const plays = must(await db.rpc('increment_plays', { p_track_id: id }));
   res.json({ counted: plays !== null, plays });
 });
 
 // --------------------------------------------------------------- reactions
-router.post('/reactions/:id', limit(rateLimiter(10 * 60 * 1000, 60)), async (req, res) => {
+router.post('/reactions/:id', guard('reactions', 10 * 60 * 1000, 60), async (req, res) => {
   const id = idValue(req.params.id, 'Track');
   const { kind, visitor, active } = req.body || {};
   if (kind !== 'fire' && kind !== 'heart') throw new HttpError(400, 'Unknown reaction.');
@@ -92,7 +95,7 @@ router.post('/reactions/:id', limit(rateLimiter(10 * 60 * 1000, 60)), async (req
 // -------------------------------------------------------------- subscribe
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-router.post('/subscribe', limit(rateLimiter(60 * 60 * 1000, 5)), async (req, res) => {
+router.post('/subscribe', guard('subscribe', 60 * 60 * 1000, 5), async (req, res) => {
   // "website" is a hidden honeypot field: real people leave it empty.
   if (req.body?.website) return res.json({ ok: true });
   const email = text(req.body?.email, { name: 'Email', max: 254, required: true }).toLowerCase();
@@ -117,7 +120,7 @@ router.get('/shoutouts/:id', async (req, res) => {
   res.set('Cache-Control', 'no-store').json(rows.map((r) => ({ id: r.id, name: r.name, message: r.message, createdAt: r.created_at })));
 });
 
-router.post('/shoutouts/:id', limit(rateLimiter(60 * 60 * 1000, 5), 'You have sent a few shout-outs already. Try again later.'), async (req, res) => {
+router.post('/shoutouts/:id', guard('shoutouts', 60 * 60 * 1000, 5, 'You have sent a few shout-outs already. Try again later.'), async (req, res) => {
   const id = idValue(req.params.id, 'Track');
   if (req.body?.website) return res.json({ ok: true }); // honeypot
   if (!(await schemaFeatures()).v4) throw new HttpError(503, 'Shout-outs are not switched on yet.');

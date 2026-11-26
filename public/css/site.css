@@ -598,3 +598,60 @@ html.fire .splash-bar i { background: linear-gradient(90deg, #c2310c, #ffb37a); 
 html.fire .splash-status { color: #ffb37a; }
 @media (prefers-reduced-motion: reduce) { .splash { display: none; } }
 @media (max-width: 650px) { .hero-wordmark { width: min(100%, 340px); margin-left: -10px; } }
+
+/* ==========================================================================
+   Mobile polish
+   ========================================================================== */
+.nav { margin-left: auto; }
+.header-actions { display: flex; align-items: center; gap: 10px; }
+.wave i { min-width: 0; }
+.latest-drop { min-width: 0; }
+
+@media (max-width: 650px) {
+  /* Header: logo + buttons on one row, menu underneath */
+  .header { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'brand actions' 'nav nav'; align-items: center; gap: 10px 12px; padding: 12px 0 10px; height: auto; }
+  .brand { grid-area: brand; font-size: 16px; gap: 8px; min-width: 0; white-space: nowrap; }
+  .brand-dash { margin: 0 3px; }
+  .brand-mark.logo, .brand-mark.logo img { width: 32px; height: 32px; }
+  .header-actions { grid-area: actions; gap: 6px; }
+  .nav { grid-area: nav; margin-left: 0; width: 100%; justify-content: space-between; gap: 12px; }
+  .nav-fire { padding: 7px 10px; }
+  .nav-install { padding: 7px 10px; font-size: 11px; white-space: nowrap; }
+
+  /* Waveforms fit narrow screens */
+  .wave-base, .wave-fill { gap: 1px; }
+  .wave { height: 54px; }
+
+  /* Category buttons: one swipeable row */
+  .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; width: calc(100% + 32px); margin: 0 -16px; padding: 0 16px 4px; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip { flex: none; }
+
+  /* Email follow box: full-width field and button */
+  .follow-form { flex-direction: column; width: 100%; }
+  .follow-form input, .follow-form .btn { width: 100%; min-width: 0; }
+
+  /* Smaller badges on small cards */
+  .cover-badge, .hot-badge { font-size: 8px; padding: 4px 7px; top: 9px; }
+  .cover-badge { left: 9px; }
+  .hot-badge { right: 9px; }
+  .cover-badge svg { width: 9px; height: 9px; }
+
+  /* Hero art: keep the "Latest drop" button inside */
+  .visual { padding: 18px; }
+  .visual-bottom { gap: 8px; }
+  .visual-bottom strong { font-size: 36px; flex: none; }
+  .latest-drop { flex: 1; max-width: none; }
+  .latest-play { max-width: 100%; padding-right: 10px; }
+
+  /* Track page */
+  .detail h1 { font-size: 34px; overflow-wrap: anywhere; }
+  .detail-actions { gap: 8px; }
+  .share-row .btn { flex: 1 1 calc(50% - 8px); }
+  .shout-form .btn { width: 100%; }
+}
+@media (max-width: 360px) {
+  .brand { font-size: 14px; }
+  .nav { gap: 8px; font-size: 12px; }
+  .grid { gap: 8px; }
+}

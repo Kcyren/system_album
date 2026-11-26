@@ -1,4 +1,4 @@
-# System Album
+# Surgthflur - Music
 
 A music showcase and installable app for **Surgthflur**: freestyles, mixes, short videos and the journey of getting better, one take at a time.
 
@@ -124,6 +124,12 @@ Good to know:
 - **Automatic video covers:** a frame from the video becomes the cover when none is chosen, or press "Use this moment as the cover".
 - **Featured track:** ★ Feature any published track for the homepage's spinning record. Otherwise it shows the newest upload.
 - **New-release emails** to followers when publishing (see above).
+- **LED light effects** that move with the music (LED wall, chasing borders, beat glow) and a **🔥 Fire mode** toggle that turns the lights orange and red.
+- **🔥 Hot right now:** the most played and loved tracks of the last 7 days get a Hot badge and their own row. Only real plays and reactions count.
+- **Story cards:** a 1080×1920 image (cover, title, LED meter from the waveform, link) for Instagram, TikTok or Facebook stories.
+- **Synced lyrics:** in the Studio, play the track and tap as each line starts. On the site the lines light up karaoke-style, and clicking a line jumps to it.
+- **Shout-outs:** visitors leave short messages on a track. They appear only after he approves them in Studio → Shout-outs.
+- **Live listeners:** "3 listening now" on the track page and in the player (needs update 004).
 
 ---
 

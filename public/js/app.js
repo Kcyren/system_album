@@ -1,5 +1,6 @@
 import { icon, hydrateIcons, h, formatDuration, formatDate, formatTime, plural, artFor, trackCard, waveform } from './ui.js';
 import { initFx, fxGesture, watchLeds } from './fx.js';
+import { makeStoryCard } from './story.js';
 
 const $ = (selector) => document.querySelector(selector);
 const LATEST_COUNT = 4;
@@ -15,6 +16,8 @@ const state = {
   query: '',
   discoverIds: [],
   homeScroll: 0,
+  features: {},
+  trackPoll: 0,
   loaded: false,
 };
 
@@ -80,7 +83,7 @@ const saveData = () => Boolean(navigator.connection?.saveData);
 // ================================================================ player
 const media = $('#media');
 const playerEl = $('#player');
-const player = { queue: [], index: -1, track: null, listened: 0, lastTime: 0, counted: false, pendingSeek: null };
+const player = { queue: [], index: -1, track: null, listened: 0, lastTime: 0, counted: false, pendingSeek: null, lyricIndex: -2 };
 
 function setPlayIcon(button, playing) {
   button.innerHTML = icon(playing ? 'pause' : 'play');
@@ -112,8 +115,105 @@ function updateWaves() {
   document.querySelectorAll(`.wave[data-wave="${player.track.id}"]`).forEach((el) => el.setProgress(fraction));
 }
 
+// ---------------------------------------------------------- synced lyrics
+// Lines light up karaoke-style when the track has timings (set in the Studio).
+function lyricLines(track) {
+  return track.lyrics.split(/\r?\n/).map((line, i) => h('span', {
+    class: 'ly-line', 'data-i': String(i), 'data-t': track.lyricsTiming?.[i] ?? '',
+  }, line || '\u00a0'));
+}
+
+function seekToLyric(track, seconds) {
+  if (player.track?.id === track.id) {
+    media.currentTime = seconds;
+    if (media.paused) media.play().catch(() => {});
+  } else {
+    playTrack(track, [track], track.duration ? Math.min(0.999, seconds / track.duration) : null);
+  }
+}
+
+function onLyricClick(track) {
+  return (event) => {
+    const line = event.target.closest('.ly-line');
+    if (!line || line.dataset.t === '') return;
+    seekToLyric(track, Number(line.dataset.t));
+  };
+}
+
+function updateLyrics(force = false) {
+  const track = player.track;
+  if (!track?.lyricsTiming) return;
+  const now = media.currentTime;
+  let active = -1;
+  track.lyricsTiming.forEach((start, i) => {
+    if (start !== null && start <= now + 0.15) active = i;
+  });
+  if (active === player.lyricIndex && !force) return;
+  player.lyricIndex = active;
+  document.querySelectorAll(`[data-lyrics="${track.id}"]`).forEach((box) => {
+    box.querySelectorAll('.ly-line').forEach((line) => {
+      const i = Number(line.dataset.i);
+      line.classList.toggle('active', i === active);
+      line.classList.toggle('done', i < active);
+    });
+    const line = box.querySelector('.ly-line.active');
+    const scroller = box.closest('.np-lyrics') || box;
+    if (line && scroller.scrollHeight > scroller.clientHeight) {
+      scroller.scrollTo({ top: line.offsetTop - scroller.clientHeight / 2 + line.offsetHeight / 2, behavior: 'smooth' });
+    }
+  });
+}
+
+// --------------------------------------------------------- live listeners
+// While a track plays, the player checks in every 20 seconds.
+const live = { timer: 0, trackId: null };
+
+function showLive(trackId, count) {
+  const text = count >= 2 ? `${count} listening now` : '';
+  document.querySelectorAll(`[data-live="${trackId}"]`).forEach((el) => {
+    el.hidden = !text;
+    el.textContent = text;
+  });
+  if (player.track?.id === trackId) {
+    const np = $('#np-live');
+    np.hidden = !text;
+    np.replaceChildren(text ? h('span', { class: 'live' }, text) : '');
+  }
+}
+
+function checkIn(trackId, stop = false, keepalive = false) {
+  if (!state.features.listeners || !trackId) return;
+  fetch(`/api/listening/${trackId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ visitor: visitorId(), stop }),
+    keepalive,
+  }).then((r) => r.json()).then((r) => typeof r.count === 'number' && showLive(trackId, r.count)).catch(() => {});
+}
+
+function startLive() {
+  const track = player.track;
+  if (!track || track.status === 'draft') return;
+  if (live.trackId && live.trackId !== track.id) checkIn(live.trackId, true);
+  live.trackId = track.id;
+  clearInterval(live.timer);
+  checkIn(track.id);
+  live.timer = setInterval(() => checkIn(track.id), 20000);
+}
+
+function stopLive() {
+  clearInterval(live.timer);
+  if (live.trackId) checkIn(live.trackId, true);
+  live.trackId = null;
+}
+
+addEventListener('pagehide', () => {
+  if (live.trackId) checkIn(live.trackId, true, true);
+});
+
 function load(track, autoplay) {
   player.track = track;
+  player.lyricIndex = -2;
   player.listened = 0;
   player.lastTime = 0;
   player.counted = false;
@@ -136,7 +236,13 @@ function load(track, autoplay) {
     wave.append(el);
   }
   $('#np-lyrics').hidden = !track.lyrics;
-  $('#np-lyrics-text').textContent = track.lyrics || '';
+  const npLyrics = $('#np-lyrics-text');
+  npLyrics.className = track.lyricsTiming ? 'synced' : '';
+  npLyrics.dataset.lyrics = track.lyricsTiming ? track.id : '';
+  npLyrics.onclick = track.lyricsTiming ? onLyricClick(track) : null;
+  if (track.lyricsTiming) npLyrics.replaceChildren(...lyricLines(track));
+  else npLyrics.textContent = track.lyrics || '';
+  $('#np-live').hidden = true;
   $('#btn-prev').disabled = player.index <= 0 && player.queue.length <= 1;
   $('#btn-next').disabled = player.index >= player.queue.length - 1;
 
@@ -173,6 +279,7 @@ function step(direction) {
 }
 
 function closePlayer() {
+  stopLive();
   media.pause();
   media.removeAttribute('src');
   media.load();
@@ -212,7 +319,7 @@ function updateMediaSession(track) {
   navigator.mediaSession.metadata = new MediaMetadata({
     title: track.title,
     artist: state.profile?.artistName || 'Surgthflur',
-    album: track.album?.title || 'System Album',
+    album: track.album?.title || 'Surgthflur - Music',
     artwork: [{ src: track.coverUrl || '/icons/icon-512.png', sizes: '512x512' }],
   });
   const handlers = {
@@ -283,11 +390,13 @@ function setupPlayer() {
   });
 
   media.addEventListener('play', () => {
+    startLive();
     setPlayIcon($('#btn-play'), true);
     document.body.classList.add('is-playing');
     markCurrent();
   });
   media.addEventListener('pause', () => {
+    stopLive();
     setPlayIcon($('#btn-play'), false);
     document.body.classList.remove('is-playing');
     markCurrent();
@@ -313,6 +422,7 @@ function setupPlayer() {
       $('#t-cur').textContent = formatDuration(media.currentTime);
     }
     updateWaves();
+    updateLyrics();
   });
   media.addEventListener('volumechange', () => {
     $('#btn-mute').innerHTML = icon(media.muted || media.volume === 0 ? 'mute' : 'volume');
@@ -370,10 +480,60 @@ document.addEventListener('visibilitychange', () => {
 
 // ================================================================= share
 let shareTarget = null;
+let shareStoryTrack = null;
+
+// ------------------------------------------------------------- story card
+async function openStory(track) {
+  let dialog = $('#story-dialog');
+  if (!dialog) {
+    dialog = h('dialog', { class: 'story-dialog', id: 'story-dialog', 'aria-labelledby': 'story-title' },
+      h('div', { class: 'share-head' },
+        h('h3', { id: 'story-title' }, 'Story card'),
+        h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close', html: icon('close'), onclick: () => dialog.close() })),
+      h('p', { class: 'muted small', id: 'story-note' }, ''),
+      h('img', { id: 'story-img', alt: 'Story card preview' }),
+      h('div', { class: 'buttons' },
+        h('a', { class: 'btn primary', id: 'story-download', html: icon('download') }, 'Download'),
+        h('button', { class: 'btn', type: 'button', id: 'story-share', html: icon('share'), hidden: true }, 'Share')));
+    dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); });
+    document.body.append(dialog);
+  }
+  const img = $('#story-img');
+  const download = $('#story-download');
+  const shareBtn = $('#story-share');
+  $('#story-note').textContent = 'Making your story card…';
+  img.removeAttribute('src');
+  download.removeAttribute('href');
+  shareBtn.hidden = true;
+  dialog.showModal();
+
+  const blob = await makeStoryCard(track, {
+    artist: state.profile?.artistName || 'Surgthflur',
+    url: absoluteUrl(`/track/${track.id}`),
+    fire: document.documentElement.classList.contains('fire'),
+  });
+  if (!blob) {
+    $('#story-note').textContent = 'Sorry, the story card could not be made in this browser.';
+    return;
+  }
+  const url = URL.createObjectURL(blob);
+  const name = `surgthflur-${track.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'track'}.png`;
+  img.src = url;
+  download.href = url;
+  download.download = name;
+  $('#story-note').textContent = 'Post it to your Instagram, TikTok or Facebook story. Add the link sticker with the track link!';
+  const file = new File([blob], name, { type: 'image/png' });
+  if (navigator.canShare?.({ files: [file] })) {
+    shareBtn.hidden = false;
+    shareBtn.onclick = () => navigator.share({ files: [file], title: track.title, text: absoluteUrl(`/track/${track.id}`) }).catch(() => {});
+  }
+}
 
 function openShare(item, kind = 'track') {
+  $('#share-story').hidden = kind !== 'track';
+  shareStoryTrack = kind === 'track' ? item : null;
   const url = absoluteUrl(`/${kind}/${item.id}`);
-  const text = `${item.title} — ${state.profile?.artistName || 'Surgthflur'} on System Album`;
+  const text = `${item.title} — ${state.profile?.artistName || 'Surgthflur'} on Surgthflur - Music`;
   shareTarget = { url, text, title: item.title };
   $('#share-track').textContent = item.title;
   $('#share-whatsapp').href = `https://wa.me/?text=${encodeURIComponent(`${text} ${url}`)}`;
@@ -398,6 +558,10 @@ function setupShare() {
   $('#share-copy').addEventListener('click', () => {
     copyLink(shareTarget.url);
     dialog.close();
+  });
+  $('#share-story').addEventListener('click', () => {
+    dialog.close();
+    if (shareStoryTrack) openStory(shareStoryTrack);
   });
   $('#share-native').addEventListener('click', async () => {
     dialog.close();
@@ -547,6 +711,10 @@ function renderBrowse() {
     $('#discover-block').hidden = true;
     return;
   }
+
+  const hot = state.tracks.filter((t) => t.hot).sort((a, b) => a.hot - b.hot);
+  $('#hot-block').hidden = hot.length === 0;
+  if (hot.length) fillGrid($('#hot'), hot, '');
 
   const latest = state.tracks.slice(0, LATEST_COUNT);
   fillGrid($('#latest'), latest, '');
@@ -725,7 +893,7 @@ async function showTrack(id) {
     }
   }
   if (!track) {
-    showPage(notFound('track'), 'Not found | System Album');
+    showPage(notFound('track'), 'Not found | Surgthflur - Music');
     return;
   }
 
@@ -742,6 +910,8 @@ async function showTrack(id) {
   if (track.recordedDate) meta.append(h('span', {}, `Recorded ${formatDate(track.recordedDate)}${track.recordedTime ? `, ${formatTime(track.recordedTime)}` : ''}`));
   if (track.duration) meta.append(h('span', {}, formatDuration(track.duration)));
   if (track.plays > 0) meta.append(h('span', {}, plural(track.plays, 'play')));
+  if (track.hot) meta.append(h('span', { class: 'hot-title' }, '🔥 Hot this week'));
+  meta.append(h('span', { class: 'live', 'data-live': track.id, hidden: true }));
 
   const actions = h('div', { class: 'detail-actions' },
     h('button', { class: 'btn primary', type: 'button', 'data-play-for': track.id, 'data-label': 'Play', onclick: play }),
@@ -761,7 +931,10 @@ async function showTrack(id) {
   if (track.description) prose.append(h('h3', {}, 'About this track'), h('p', {}, track.description));
   if (track.howMade) prose.append(h('h3', {}, 'How it was made'), h('p', {}, track.howMade));
   if (track.progressNote) prose.append(h('h3', {}, 'What changed / what I learned'), h('p', { class: 'note' }, track.progressNote));
-  if (track.lyrics) {
+  if (track.lyrics && track.lyricsTiming) {
+    const box = h('div', { class: 'lyrics synced', 'data-lyrics': track.id, onclick: onLyricClick(track) }, ...lyricLines(track));
+    prose.append(h('h3', {}, 'Lyrics', h('span', { class: 'synced-tag' }, 'SYNCED')), box);
+  } else if (track.lyrics) {
     const lyrics = h('p', { class: 'lyrics' }, track.lyrics);
     prose.append(h('h3', {}, 'Lyrics'), lyrics);
     if (track.lyrics.split(/\r?\n/).length > 14 || track.lyrics.length > 700) {
@@ -781,6 +954,7 @@ async function showTrack(id) {
     h('a', { class: 'btn', href: `https://wa.me/?text=${encodeURIComponent(`${track.title} — ${absoluteUrl(`/track/${track.id}`)}`)}`, target: '_blank', rel: 'noopener noreferrer', html: icon('whatsapp') }, 'WhatsApp'),
     h('a', { class: 'btn', href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(absoluteUrl(`/track/${track.id}`))}`, target: '_blank', rel: 'noopener noreferrer', html: icon('facebook') }, 'Facebook'),
     h('button', { class: 'btn', type: 'button', html: icon('link'), onclick: () => copyLink(absoluteUrl(`/track/${track.id}`)) }, 'Copy link'),
+    h('button', { class: 'btn', type: 'button', html: icon('download'), onclick: () => openStory(track) }, 'Story card'),
   );
 
   const related = state.tracks
@@ -806,16 +980,72 @@ async function showTrack(id) {
         shareRow,
       ),
     ),
+    !draft && state.features.shoutouts ? shoutoutsSection(track) : null,
     more,
   );
-  showPage(page, `${track.title} — ${state.profile?.artistName || 'Surgthflur'} | System Album`);
+  // Show "N listening now" while this page is open.
+  if (!draft && state.features.listeners) {
+    const poll = () => api(`/api/listening/${track.id}`).then((r) => showLive(track.id, r.count)).catch(() => {});
+    setTimeout(poll, 300);
+    state.trackPoll = setInterval(poll, 30000);
+  }
+  showPage(page, `${track.title} — ${state.profile?.artistName || 'Surgthflur'} - Music`);
+}
+
+// ============================================================ shout-outs
+function shoutoutsSection(track) {
+  const list = h('ul', { class: 'shout-list' }, h('li', { class: 'muted small' }, 'Loading shout-outs…'));
+  const name = h('input', { maxlength: '40', placeholder: 'Your name', 'aria-label': 'Your name', autocomplete: 'nickname', required: true });
+  name.value = store.get('sa_name', '');
+  const message = h('textarea', { maxlength: '280', placeholder: `Leave a shout-out for ${state.profile?.artistName || 'Surgthflur'}…`, 'aria-label': 'Your shout-out', required: true });
+  const count = h('span', { class: 'count' }, '0/280');
+  message.addEventListener('input', () => { count.textContent = `${message.value.length}/280`; });
+  const honeypot = h('input', { name: 'website', tabindex: '-1', autocomplete: 'off' });
+  const status = h('p', { class: 'status', role: 'status' });
+  const button = h('button', { class: 'btn primary', type: 'submit' }, 'Send shout-out');
+
+  const form = h('form', {
+    class: 'shout-form',
+    onsubmit: async (event) => {
+      event.preventDefault();
+      if (!name.value.trim() || !message.value.trim()) {
+        status.textContent = 'Please add your name and a message.';
+        return;
+      }
+      button.disabled = true;
+      try {
+        await api(`/api/shoutouts/${track.id}`, {
+          method: 'POST',
+          body: JSON.stringify({ name: name.value, message: message.value, visitor: visitorId(), website: honeypot.value }),
+        });
+        store.set('sa_name', name.value.trim());
+        message.value = '';
+        count.textContent = '0/280';
+        status.textContent = `Thanks! Your shout-out will appear once ${state.profile?.artistName || 'Surgthflur'} approves it.`;
+      } catch (error) {
+        status.textContent = error.message;
+      } finally {
+        button.disabled = false;
+      }
+    },
+  }, name, message, h('div', { class: 'hp', 'aria-hidden': 'true' }, honeypot), h('div', { class: 'row' }, count, button));
+
+  api(`/api/shoutouts/${track.id}`).then((rows) => {
+    list.replaceChildren(...(rows.length
+      ? rows.map((r) => h('li', { class: 'shout' }, h('b', {}, r.name), h('time', { datetime: r.createdAt }, formatDate(r.createdAt)), h('p', {}, r.message)))
+      : [h('li', { class: 'muted small' }, 'No shout-outs yet. Be the first!')]));
+  }).catch(() => list.replaceChildren());
+
+  return h('section', { class: 'shoutouts' },
+    h('div', { class: 'row-label' }, h('span', { class: 'label' }, 'Shout-outs')),
+    list, form, status);
 }
 
 // =========================================================== album page
 function showAlbum(id) {
   const album = state.albums.find((a) => a.id === id);
   if (!album) {
-    showPage(notFound('album'), 'Not found | System Album');
+    showPage(notFound('album'), 'Not found | Surgthflur - Music');
     return;
   }
   const tracks = album.trackIds.map(trackById).filter(Boolean);
@@ -849,11 +1079,12 @@ function showAlbum(id) {
     ),
     h('ol', { class: 'tracklist' }, ...rows),
   );
-  showPage(page, `${album.title} — ${state.profile?.artistName || 'Surgthflur'} | System Album`);
+  showPage(page, `${album.title} — ${state.profile?.artistName || 'Surgthflur'} - Music`);
 }
 
 // ================================================================ router
 function showPage(content, title) {
+  clearInterval(state.trackPoll);
   if (!$('#home').hidden) state.homeScroll = scrollY;
   $('#home').hidden = true;
   const page = $('#page');
@@ -864,17 +1095,19 @@ function showPage(content, title) {
   watchLeds(page);
   markCurrent();
   updateWaves();
+  updateLyrics(true);
   document.title = title;
   scrollTo({ top: 0, behavior: 'instant' });
   $('#main').focus({ preventScroll: true });
 }
 
 function showHome(hash) {
+  clearInterval(state.trackPoll);
   const wasHidden = $('#home').hidden;
   $('#page').hidden = true;
   $('#page').replaceChildren();
   $('#home').hidden = false;
-  document.title = `${state.profile?.artistName || 'Surgthflur'} | System Album`;
+  document.title = `${state.profile?.artistName || 'Surgthflur'} - Music`;
   markCurrent();
   const target = hash && document.getElementById(hash.slice(1));
   if (target) target.scrollIntoView({ behavior: wasHidden ? 'instant' : 'smooth' });
@@ -910,6 +1143,23 @@ function setupRouter() {
 }
 
 // ================================================================== PWA
+// Fire mode: switches the lights and accents from blue to flames.
+function setupFire() {
+  const button = $('#fire-toggle');
+  const apply = (on) => {
+    document.documentElement.classList.toggle('fire', on);
+    button.setAttribute('aria-pressed', String(on));
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', on ? '#140603' : '#080b14');
+  };
+  apply(Boolean(store.get('sa_fire', false)));
+  button.addEventListener('click', () => {
+    const on = !document.documentElement.classList.contains('fire');
+    apply(on);
+    store.set('sa_fire', on);
+    toast(on ? '🔥 Fire mode on' : 'Back to blue');
+  });
+}
+
 function setupInstall() {
   let deferred = null;
   const button = $('#install-btn');
@@ -927,7 +1177,7 @@ function setupInstall() {
   });
   addEventListener('appinstalled', () => {
     button.hidden = true;
-    toast('System Album installed');
+    toast('Surgthflur - Music installed');
   });
   if ('serviceWorker' in navigator) {
     addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
@@ -948,6 +1198,7 @@ async function boot() {
   setupHome();
   setupRouter();
   setupInstall();
+  setupFire();
   showSkeletons();
 
   try {
@@ -958,6 +1209,7 @@ async function boot() {
       tracks: data.tracks,
       albums: data.albums,
       journey: data.journey,
+      features: data.features || {},
     });
   } catch (error) {
     state.profile = { artistName: 'Surgthflur', socials: [] };

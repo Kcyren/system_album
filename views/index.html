@@ -18,12 +18,13 @@
 <a class="skip-link" href="#main">Skip to content</a>
 <div class="shell">
   <header class="header">
-    <a class="brand" href="/" data-link><span class="brand-mark">S</span> SYSTEM<span class="brand-dot">.</span>ALBUM</a>
+    <a class="brand" href="/" data-link><span class="brand-mark">S</span> SURGTHFLUR<span class="brand-dash">-</span>MUSIC</a>
     <nav class="nav" aria-label="Main navigation">
       <a href="/#music" data-link>Music</a>
       <a href="/#albums" data-link>Albums</a>
       <a href="/#journey" data-link>Journey</a>
       <a href="/#about" data-link>About</a>
+      <button class="nav-fire" id="fire-toggle" type="button" aria-pressed="false" title="Fire mode"><span class="flame" aria-hidden="true">🔥</span><span class="fire-text">Fire mode</span></button>
       <button class="nav-install" id="install-btn" type="button" hidden>Install app</button>
     </nav>
     <span class="led-run" aria-hidden="true"></span>
@@ -46,8 +47,8 @@
           <div class="hero-foot"><span class="spark">✳</span><span><b>No account needed.</b> Just come as you are and listen.</span></div>
         </div>
         <div class="visual led-frame" id="hero-visual">
-          <div class="visual-record" id="hero-record"><div class="visual-label" id="hero-label"><span>S / A</span></div></div>
-          <div class="visual-top"><span>Surgthflur<br>System Album</span><span>Sound journal<br><span id="hero-kind">Latest drop</span></span></div>
+          <div class="visual-record" id="hero-record"><div class="visual-label" id="hero-label"><span>SURG</span></div></div>
+          <div class="visual-top"><span>Surgthflur<br>Music</span><span>Sound journal<br><span id="hero-kind">Latest drop</span></span></div>
           <div class="visual-bottom">
             <strong>THE<br>PROCESS<br>IS THE ART.</strong>
             <div class="latest-drop" id="latest-drop" hidden>
@@ -80,6 +81,10 @@
           <div id="results" class="grid"></div>
         </div>
         <div id="browse-block">
+          <div id="hot-block" hidden>
+            <div class="row-label"><span class="label hot-title">🔥 Hot right now</span><span class="row-hint">Most played &amp; loved this week</span></div>
+            <div id="hot" class="grid"></div>
+          </div>
           <div class="row-label"><span class="label">Latest uploads</span></div>
           <div id="latest" class="grid"></div>
           <div id="discover-block">
@@ -125,13 +130,13 @@
           <article class="about-card">
             <div class="label">About the space</div>
             <h3>Music in the making.</h3>
-            <p id="site-bio">System Album is a home for music, ideas, and the progress that happens along the way.</p>
+            <p id="site-bio">A home for music, ideas, and the progress that happens along the way.</p>
           </article>
         </div>
         <div class="follow">
           <div>
             <h3>Don't miss the next drop.</h3>
-            <p>Get an email when new music lands. Only used for System Album updates — unsubscribe anytime.</p>
+            <p>Get an email when new music lands. Only used for new-music updates — unsubscribe anytime.</p>
           </div>
           <form class="follow-form" id="follow-form" novalidate>
             <label class="sr" for="follow-email">Email address</label>
@@ -149,7 +154,7 @@
   </main>
 
   <footer class="footer">
-    <div class="brand small"><span class="brand-mark">S</span> SYSTEM.ALBUM</div>
+    <div class="brand small"><span class="brand-mark">S</span> SURGTHFLUR<span class="brand-dash">-</span>MUSIC</div>
     <span>Made for the music, and the person making it.</span>
     <a href="/studio" class="footer-studio">Creator Studio</a>
   </footer>
@@ -166,6 +171,7 @@
     <div class="np-meta">
       <a class="np-title" id="np-title" href="/" data-link></a>
       <span class="np-sub" id="np-sub"></span>
+      <span class="np-live" id="np-live" hidden></span>
     </div>
     <canvas class="led-canvas np-led" data-cell="9" aria-hidden="true"></canvas>
     <div class="np-wave" id="np-wave" hidden></div>
@@ -198,6 +204,7 @@
       <a class="share-opt" id="share-whatsapp" target="_blank" rel="noopener noreferrer"><span data-icon="whatsapp"></span>WhatsApp</a>
       <a class="share-opt" id="share-facebook" target="_blank" rel="noopener noreferrer"><span data-icon="facebook"></span>Facebook</a>
       <button class="share-opt" type="button" id="share-copy"><span data-icon="link"></span>Copy link</button>
+      <button class="share-opt" type="button" id="share-story"><span data-icon="download"></span>Story card</button>
       <button class="share-opt" type="button" id="share-native" hidden><span data-icon="share"></span>More…</button>
     </div>
   </form>

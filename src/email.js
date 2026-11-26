@@ -24,14 +24,14 @@ function releaseEmail({ track, artist, base, unsubscribeUrl }) {
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#080b14;padding:28px 12px"><tr><td align="center">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#111728;border:1px solid #293452;border-radius:14px;padding:24px">
 <tr><td>
-<p style="margin:0 0 18px;font-size:12px;letter-spacing:2px;color:#9db4ff;font-weight:bold">SYSTEM.ALBUM · NEW ${escapeHtml(track.category.toUpperCase())}</p>
+<p style="margin:0 0 18px;font-size:12px;letter-spacing:2px;color:#9db4ff;font-weight:bold">SURGTHFLUR - MUSIC · NEW ${escapeHtml(track.category.toUpperCase())}</p>
 ${cover}
 <h1 style="margin:0 0 8px;font-size:28px;line-height:1.15">${escapeHtml(track.title)}</h1>
 <p style="margin:0 0 18px;color:#a5afc7">New from ${escapeHtml(artist)}</p>
 ${about}
 <a href="${escapeHtml(link)}" style="display:inline-block;background:#426bff;color:#ffffff;text-decoration:none;font-weight:bold;padding:13px 22px;border-radius:8px">▶ Listen now</a>
 </td></tr></table>
-<p style="max-width:560px;margin:18px auto 0;font-size:11px;color:#7d8bab;line-height:1.6">You're getting this because you followed ${escapeHtml(artist)} on System Album.
+<p style="max-width:560px;margin:18px auto 0;font-size:11px;color:#7d8bab;line-height:1.6">You're getting this because you followed ${escapeHtml(artist)} - Music.
 <a href="${escapeHtml(unsubscribeUrl)}" style="color:#9db4ff">Unsubscribe</a></p>
 </td></tr></table></body></html>`;
   const text = `New from ${artist}: ${track.title}\n\n${track.description ? `${track.description}\n\n` : ''}Listen: ${link}\n\nUnsubscribe: ${unsubscribeUrl}`;

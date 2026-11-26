@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>System Album — Refreshing…</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #050510;
+    color: #fff;
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    min-height: 100vh;
+  }
+  /* ---------- splash / refreshing screen ---------- */
+  #splash {
+    position: fixed; inset: 0;
+    background: #050510;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 8px;
+    z-index: 10;
+    transition: opacity .7s ease, visibility .7s ease;
+  }
+  #splash.done { opacity: 0; visibility: hidden; }
+  .splash-logo { width: min(60vw, 300px); }
+  .splash-logo svg { display: block; width: 100%; height: auto; }
+  .status {
+    margin-top: 14px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: .85rem;
+    letter-spacing: 2px;
+    color: #8ea8ff;
+    min-height: 1.3em;
+  }
+  .status .cursor {
+    display: inline-block;
+    width: .55em; height: 1em;
+    background: #5C86FF;
+    vertical-align: text-bottom;
+    margin-left: 4px;
+    animation: blink 1s steps(1) infinite;
+  }
+  .bar {
+    width: min(60vw, 280px);
+    height: 3px;
+    background: #131b3a;
+    border-radius: 99px;
+    overflow: hidden;
+    margin-top: 12px;
+  }
+  .bar i {
+    display: block; height: 100%; width: 0%;
+    background: linear-gradient(90deg, #2E5BFF, #7E97FF);
+    border-radius: 99px;
+    transition: width .4s ease;
+  }
+  .pct {
+    font-family: 'Consolas', monospace;
+    font-size: .72rem;
+    color: #565e8a;
+    letter-spacing: 3px;
+    margin-top: 8px;
+  }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+  /* ---------- the site behind the splash ---------- */
+  #site { opacity: 0; transform: translateY(14px); transition: opacity .8s ease .15s, transform .8s ease .15s; }
+  #site.ready { opacity: 1; transform: none; }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px clamp(20px, 5vw, 48px);
+    border-bottom: 1px solid #161a33;
+  }
+  .brand { font-weight: 700; letter-spacing: 5px; font-size: 1.05rem; }
+  .brand span { color: #5C86FF; font-weight: 400; }
+  .live {
+    font-size: .68rem; letter-spacing: 2px; color: #8ea8ff;
+    border: 1px solid #2E5BFF; border-radius: 99px; padding: 5px 14px;
+  }
+  main { max-width: 900px; margin: 0 auto; padding: clamp(28px, 6vw, 64px) clamp(20px, 5vw, 48px); }
+  main h1 { font-size: clamp(1.5rem, 4.5vw, 2.3rem); letter-spacing: 1px; }
+  main h1 span { color: #7E97FF; font-weight: 400; }
+  main p.sub { color: #8a93c4; margin-top: 12px; line-height: 1.65; max-width: 560px; }
+  .reload {
+    margin-top: 26px;
+    background: #2E5BFF; color: #fff; border: 0;
+    font: inherit; font-weight: 600; letter-spacing: 1px;
+    padding: 12px 26px; border-radius: 10px; cursor: pointer;
+  }
+  .reload:hover { background: #3d68ff; }
+  .hint { margin-top: 14px; font-size: .8rem; color: #565e8a; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 40px; }
+  .card {
+    background: #0c0d1a; border: 1px solid #1d2140; border-radius: 14px;
+    padding: 18px; font-size: .85rem; color: #8a93c4;
+  }
+  .card b { display: block; color: #fff; margin-bottom: 6px; letter-spacing: 1px; }
+  .badge {
+    display: inline-block; font-size: .62rem; letter-spacing: 2px; color: #050510;
+    background: #5C86FF; border-radius: 99px; padding: 3px 10px; margin-bottom: 10px; font-weight: 700;
+  }
+</style>
+</head>
+<body>
+
+<div id="splash" role="status" aria-label="System Album is refreshing">
+  <div class="splash-logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" role="img" aria-label="System Album logo: waveform disc booting up with traveling volume waves">
+  <defs>
+    <radialGradient id="halo" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#2E5BFF" stop-opacity="0.35"/>
+      <stop offset="70%" stop-color="#2E5BFF" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#2E5BFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <style>
+    .halo {
+      transform-origin: 400px 340px;
+      animation: haloBoot 0.6s ease-out both, breathe 5s ease-in-out 0.6s infinite alternate;
+    }
+    .ring {
+      transform-origin: 400px 340px;
+      animation: spin 90s linear infinite;
+      filter: drop-shadow(0 0 10px rgba(46, 91, 255, 0.45));
+    }
+    .obBoot { animation: bootIn 0.35s ease-out both; }
+    .ob {
+      transform-box: fill-box;
+      transform-origin: 50% 100%;
+      animation: wave 2.4s cubic-bezier(.45,0,.55,1) infinite;
+    }
+    .eqBoot { animation: bootIn 0.3s ease-out both; }
+    .eq {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: pulse 1.1s ease-in-out infinite alternate;
+    }
+    .eqGroup { filter: drop-shadow(0 0 6px rgba(92, 134, 255, 0.5)); }
+    /* wordmark letters boot like a terminal, then a refresh wave sweeps through */
+    .ltS, .ltA {
+      animation: bootIn 0.4s ease-out both, refreshS 4s linear infinite;
+    }
+    .ltS { fill: #FFFFFF; }
+    .ltA { fill: #7E97E8; animation-name: bootIn, refreshA; }
+    .cursor {
+      fill: #5C86FF;
+      animation: bootIn 0.01s linear 3.9s both, blink 1.05s steps(1) 3.91s infinite;
+    }
+    @keyframes bootIn {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+    @keyframes haloBoot {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+    @keyframes breathe {
+      from { opacity: 0.55; transform: scale(0.98); }
+      to   { opacity: 1;    transform: scale(1.03); }
+    }
+    @keyframes refreshS {
+      0%, 22%, 100% { fill: #FFFFFF; }
+      11%           { fill: #A9BBFF; }
+    }
+    @keyframes refreshA {
+      0%, 22%, 100% { fill: #7E97E8; }
+      11%           { fill: #C7D2FF; }
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: 0; }
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
+    }
+    @keyframes wave {
+      0%   { transform: scaleY(0.3); opacity: 0.35; }
+      50%  { transform: scaleY(1);   opacity: 1; }
+      100% { transform: scaleY(0.3); opacity: 0.35; }
+    }
+    @keyframes pulse {
+      from { transform: scaleY(0.35); opacity: 0.7; }
+      to   { transform: scaleY(1);    opacity: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .ring, .ob, .eq, .ltS, .ltA, .cursor, .halo { animation: none; }
+      .ltS, .ltA, .obBoot, .eqBoot, .halo { opacity: 1; }
+    }
+  </style>
+  <rect width="800" height="800" fill="#050510"/>
+  <circle class="halo" cx="400" cy="340" r="230" fill="url(#halo)"/>
+  <g class="ring" fill="#2E5BFF">
+    <g transform="rotate(0.00 400 340)"><g class="obBoot" style="animation-delay:0.250s"><rect class="ob" style="animation-delay:0.000s" x="396.5" y="152.00" width="7" height="18.00" rx="3.5"/></g></g>
+    <g transform="rotate(6.43 400 340)"><g class="obBoot" style="animation-delay:0.271s"><rect class="ob" style="animation-delay:0.043s" x="396.5" y="143.03" width="7" height="26.97" rx="3.5"/></g></g>
+    <g transform="rotate(12.86 400 340)"><g class="obBoot" style="animation-delay:0.291s"><rect class="ob" style="animation-delay:0.086s" x="396.5" y="134.40" width="7" height="35.60" rx="3.5"/></g></g>
+    <g transform="rotate(19.29 400 340)"><g class="obBoot" style="animation-delay:0.312s"><rect class="ob" style="animation-delay:0.129s" x="396.5" y="126.44" width="7" height="43.56" rx="3.5"/></g></g>
+    <g transform="rotate(25.71 400 340)"><g class="obBoot" style="animation-delay:0.332s"><rect class="ob" style="animation-delay:0.171s" x="396.5" y="119.47" width="7" height="50.53" rx="3.5"/></g></g>
+    <g transform="rotate(32.14 400 340)"><g class="obBoot" style="animation-delay:0.353s"><rect class="ob" style="animation-delay:0.214s" x="396.5" y="113.75" width="7" height="56.25" rx="3.5"/></g></g>
+    <g transform="rotate(38.57 400 340)"><g class="obBoot" style="animation-delay:0.373s"><rect class="ob" style="animation-delay:0.257s" x="396.5" y="109.50" width="7" height="60.50" rx="3.5"/></g></g>
+    <g transform="rotate(45.00 400 340)"><g class="obBoot" style="animation-delay:0.394s"><rect class="ob" style="animation-delay:0.300s" x="396.5" y="106.88" width="7" height="63.12" rx="3.5"/></g></g>
+    <g transform="rotate(51.43 400 340)"><g class="obBoot" style="animation-delay:0.414s"><rect class="ob" style="animation-delay:0.343s" x="396.5" y="106.00" width="7" height="64.00" rx="3.5"/></g></g>
+    <g transform="rotate(57.86 400 340)"><g class="obBoot" style="animation-delay:0.435s"><rect class="ob" style="animation-delay:0.386s" x="396.5" y="106.88" width="7" height="63.12" rx="3.5"/></g></g>
+    <g transform="rotate(64.29 400 340)"><g class="obBoot" style="animation-delay:0.455s"><rect class="ob" style="animation-delay:0.429s" x="396.5" y="109.50" width="7" height="60.50" rx="3.5"/></g></g>
+    <g transform="rotate(70.71 400 340)"><g class="obBoot" style="animation-delay:0.476s"><rect class="ob" style="animation-delay:0.471s" x="396.5" y="113.75" width="7" height="56.25" rx="3.5"/></g></g>
+    <g transform="rotate(77.14 400 340)"><g class="obBoot" style="animation-delay:0.496s"><rect class="ob" style="animation-delay:0.514s" x="396.5" y="119.47" width="7" height="50.53" rx="3.5"/></g></g>
+    <g transform="rotate(83.57 400 340)"><g class="obBoot" style="animation-delay:0.517s"><rect class="ob" style="animation-delay:0.557s" x="396.5" y="126.44" width="7" height="43.56" rx="3.5"/></g></g>
+    <g transform="rotate(90.00 400 340)"><g class="obBoot" style="animation-delay:0.537s"><rect class="ob" style="animation-delay:0.600s" x="396.5" y="134.40" width="7" height="35.60" rx="3.5"/></g></g>
+    <g transform="rotate(96.43 400 340)"><g class="obBoot" style="animation-delay:0.558s"><rect class="ob" style="animation-delay:0.643s" x="396.5" y="143.03" width="7" height="26.97" rx="3.5"/></g></g>
+    <g transform="rotate(102.86 400 340)"><g class="obBoot" style="animation-delay:0.579s"><rect class="ob" style="animation-delay:0.686s" x="396.5" y="152.00" width="7" height="18.00" rx="3.5"/></g></g>
+    <g transform="rotate(109.29 400 340)"><g class="obBoot" style="animation-delay:0.599s"><rect class="ob" style="animation-delay:0.729s" x="396.5" y="143.03" width="7" height="26.97" rx="3.5"/></g></g>
+    <g transform="rotate(115.71 400 340)"><g class="obBoot" style="animation-delay:0.620s"><rect class="ob" style="animation-delay:0.771s" x="396.5" y="134.40" width="7" height="35.60" rx="3.5"/></g></g>
+    <g transform="rotate(122.14 400 340)"><g class="obBoot" style="animation-delay:0.640s"><rect class="ob" style="animation-delay:0.814s" x="396.5" y="126.44" width="7" height="43.56" rx="3.5"/></g></g>
+    <g transform="rotate(128.57 400 340)"><g class="obBoot" style="animation-delay:0.661s"><rect class="ob" style="animation-delay:0.857s" x="396.5" y="119.47" width="7" height="50.53" rx="3.5"/></g></g>
+    <g transform="rotate(135.00 400 340)"><g class="obBoot" style="animation-delay:0.681s"><rect class="ob" style="animation-delay:0.900s" x="396.5" y="113.75" width="7" height="56.25" rx="3.5"/></g></g>
+    <g transform="rotate(141.43 400 340)"><g class="obBoot" style="animation-delay:0.702s"><rect class="ob" style="animation-delay:0.943s" x="396.5" y="109.50" width="7" height="60.50" rx="3.5"/></g></g>
+    <g transform="rotate(147.86 400 340)"><g class="obBoot" style="animation-delay:0.722s"><rect class="ob" style="animation-delay:0.986s" x="396.5" y="106.88" width="7" height="63.12" rx="3.5"/></g></g>
+    <g transform="rotate(154.29 400 340)"><g class="obBoot" style="animation-delay:0.743s"><rect class="ob" style="animation-delay:1.029s" x="396.5" y="106.00" width="7" height="64.00" rx="3.5"/></g></g>
+    <g transform="rotate(160.71 400 340)"><g class="obBoot" style="animation-delay:0.763s"><rect class="ob" style="animation-delay:1.071s" x="396.5" y="106.88" width="7" height="63.12" rx="3.5"/></g></g>
+    <g transform="rotate(167.14 400 340)"><g class="obBoot" style="animation-delay:0.784s"><rect class="ob" style="animation-delay:1.114s" x="396.5" y="109.50" width="7" height="60.50" rx="3.5"/></g></g>
+    <g transform="rotate(173.57 400 340)"><g class="obBoot" style="animation-delay:0.804s"><rect class="ob" style="animation-delay:1.157s" x="396.5" y="113.75" width="7" height="56.25" rx="3.5"/></g></g>
+    <g transform="rotate(180.00 400 340)"><g class="obBoot" style="animation-delay:0.825s"><rect class="ob" style="animation-delay:1.200s" x="396.5" y="119.47" width="7" height="50.53" rx="3.5"/></g></g>
+    <g transform="rotate(186.43 400 340)"><g class="obBoot" style="animation-delay:0.846s"><rect class="ob" style="animation-delay:1.243s" x="396.5" y="126.44" width="7" height="43.56" rx="3.5"/></g></g>
+    <g transform="rotate(192.86 400 340)"><g class="obBoot" style="animation-delay:0.866s"><rect class="ob" style="animation-delay:1.286s" x="396.5" y="134.40" width="7" height="35.60" rx="3.5"/></g></g>
+    <g transform="rotate(199.29 400 340)"><g class="obBoot" style="animation-delay:0.887s"><rect class="ob" style="animation-delay:1.329s" x="396.5" y="143.03" width="7" height="26.97" rx="3.5"/></g></g>
+    <g transform="rotate(205.71 400 340)"><g class="obBoot" style="animation-delay:0.907s"><rect class="ob" style="animation-delay:1.371s" x="396.5" y="152.00" width="7" height="18.00" rx="3.5"/></g></g>
+    <g transform="rotate(212.14 400 340)"><g class="obBoot" style="animation-delay:0.928s"><rect class="ob" style="animation-delay:1.414s" x="396.5" y="143.03" width="7" height="26.97" rx="3.5"/></g></g>
+    <g transform="rotate(218.57 400 340)"><g class="obBoot" style="animation-delay:0.948s"><rect class="ob" style="animation-delay:1.457s" x="396.5" y="134.40" width="7" height="35.60" rx="3.5"/></g></g>
+    <g transform="rotate(225.00 400 340)"><g class="obBoot" style="animation-delay:0.969s"><rect class="ob" style="animation-delay:1.500s" x="396.5" y="126.44" width="7" height="43.56" rx="3.5"/></g></g>
+    <g transform="rotate(231.43 400 340)"><g class="obBoot" style="animation-delay:0.989s"><rect class="ob" style="animation-delay:1.543s" x="396.5" y="119.47" width="7" height="50.53" rx="3.5"/></g></g>
+    <g transform="rotate(237.86 400 340)"><g class="obBoot" style="animation-delay:1.010s"><rect class="ob" style="animation-delay:1.586s" x="396.5" y="113.75" width="7" height="56.25" rx="3.5"/></g></g>
+    <g transform="rotate(244.29 400 340)"><g class="obBoot" style="animation-delay:1.030s"><rect class="ob" style="animation-delay:1.629s" x="396.5" y="109.50" width="7" height="60.50" rx="3.5"/></g></g>
+    <g transform="rotate(250.71 400 340)"><g class="obBoot" style="animation-delay:1.051s"><rect class="ob" style="animation-delay:1.671s" x="396.5" y="106.88" width="7" height="63.12" rx="3.5"/></g></g>
+    <g transform="rotate(257.14 400 340)"><g class="obBoot" style="animation-delay:1.071s"><rect class="ob" style="animation-delay:1.714s" x="396.5" y="106.00" width="7" height="64.00" rx="3.5"/></g></g>
+    <g transform="rotate(263.57 400 340)"><g class="obBoot" style="animation-delay:1.092s"><rect class="ob" style="animation-delay:1.757s" x="396.5" y="106.88" width="7" height="63.12" rx="3.5"/></g></g>
+    <g transform="rotate(270.00 400 340)"><g class="obBoot" style="animation-delay:1.112s"><rect class="ob" style="animation-delay:1.800s" x="396.5" y="109.50" width="7" height="60.50" rx="3.5"/></g></g>
+    <g transform="rotate(276.43 400 340)"><g class="obBoot" style="animation-delay:1.133s"><rect class="ob" style="animation-delay:1.843s" x="396.5" y="113.75" width="7" height="56.25" rx="3.5"/></g></g>
+    <g transform="rotate(282.86 400 340)"><g class="obBoot" style="animation-delay:1.154s"><rect class="ob" style="animation-delay:1.886s" x="396.5" y="119.47" width="7" height="50.53" rx="3.5"/></g></g>
+    <g transform="rotate(289.29 400 340)"><g class="obBoot" style="animation-delay:1.174s"><rect class="ob" style="animation-delay:1.929s" x="396.5" y="126.44" width="7" height="43.56" rx="3.5"/></g></g>
+    <g transform="rotate(295.71 400 340)"><g class="obBoot" style="animation-delay:1.195s"><rect class="ob" style="animation-delay:1.971s" x="396.5" y="134.40" width="7" height="35.60" rx="3.5"/></g></g>
+    <g transform="rotate(302.14 400 340)"><g class="obBoot" style="animation-delay:1.215s"><rect class="ob" style="animation-delay:2.014s" x="396.5" y="143.03" width="7" height="26.97" rx="3.5"/></g></g>
+    <g transform="rotate(308.57 400 340)"><g class="obBoot" style="animation-delay:1.236s"><rect class="ob" style="animation-delay:2.057s" x="396.5" y="152.00" width="7" height="18.00" rx="3.5"/></g></g>
+    <g transform="rotate(315.00 400 340)"><g class="obBoot" style="animation-delay:1.256s"><rect class="ob" style="animation-delay:2.100s" x="396.5" y="143.03" width="7" height="26.97" rx="3.5"/></g></g>
+    <g transform="rotate(321.43 400 340)"><g class="obBoot" style="animation-delay:1.277s"><rect class="ob" style="animation-delay:2.143s" x="396.5" y="134.40" width="7" height="35.60" rx="3.5"/></g></g>
+    <g transform="rotate(327.86 400 340)"><g class="obBoot" style="animation-delay:1.297s"><rect class="ob" style="animation-delay:2.186s" x="396.5" y="126.44" width="7" height="43.56" rx="3.5"/></g></g>
+    <g transform="rotate(334.29 400 340)"><g class="obBoot" style="animation-delay:1.318s"><rect class="ob" style="animation-delay:2.229s" x="396.5" y="119.47" width="7" height="50.53" rx="3.5"/></g></g>
+    <g transform="rotate(340.71 400 340)"><g class="obBoot" style="animation-delay:1.338s"><rect class="ob" style="animation-delay:2.271s" x="396.5" y="113.75" width="7" height="56.25" rx="3.5"/></g></g>
+    <g transform="rotate(347.14 400 340)"><g class="obBoot" style="animation-delay:1.359s"><rect class="ob" style="animation-delay:2.314s" x="396.5" y="109.50" width="7" height="60.50" rx="3.5"/></g></g>
+    <g transform="rotate(353.57 400 340)"><g class="obBoot" style="animation-delay:1.379s"><rect class="ob" style="animation-delay:2.357s" x="396.5" y="106.88" width="7" height="63.12" rx="3.5"/></g></g>
+  </g>
+  <g class="eqGroup" fill="#5C86FF">
+    <g class="eqBoot" style="animation-delay:1.35s"><rect class="eq" style="animation-delay:0.00s" x="337" y="325.0" width="7" height="30" rx="3.5"/></g>
+    <g class="eqBoot" style="animation-delay:1.43s"><rect class="eq" style="animation-delay:0.13s" x="355" y="312.5" width="7" height="55" rx="3.5"/></g>
+    <g class="eqBoot" style="animation-delay:1.51s"><rect class="eq" style="animation-delay:0.26s" x="373" y="295.0" width="7" height="90" rx="3.5"/></g>
+    <g class="eqBoot" style="animation-delay:1.59s"><rect class="eq" style="animation-delay:0.39s" x="391" y="310.0" width="7" height="60" rx="3.5"/></g>
+    <g class="eqBoot" style="animation-delay:1.67s"><rect class="eq" style="animation-delay:0.52s" x="409" y="320.0" width="7" height="40" rx="3.5"/></g>
+    <g class="eqBoot" style="animation-delay:1.75s"><rect class="eq" style="animation-delay:0.65s" x="427" y="305.0" width="7" height="70" rx="3.5"/></g>
+    <g class="eqBoot" style="animation-delay:1.83s"><rect class="eq" style="animation-delay:0.78s" x="445" y="315.0" width="7" height="50" rx="3.5"/></g>
+    <g class="eqBoot" style="animation-delay:1.91s"><rect class="eq" style="animation-delay:0.91s" x="463" y="325.0" width="7" height="30" rx="3.5"/></g>
+  </g>
+  <text x="400" y="620" text-anchor="middle" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="58" font-weight="700" letter-spacing="14"><tspan class="ltS" style="animation-delay:2.05s,0.00s">S</tspan><tspan class="ltS" style="animation-delay:2.18s,0.16s">Y</tspan><tspan class="ltS" style="animation-delay:2.31s,0.32s">S</tspan><tspan class="ltS" style="animation-delay:2.44s,0.48s">T</tspan><tspan class="ltS" style="animation-delay:2.57s,0.64s">E</tspan><tspan class="ltS" style="animation-delay:2.70s,0.80s">M</tspan></text>
+  <text x="400" y="688" text-anchor="middle" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="34" font-weight="400" letter-spacing="26"><tspan class="ltA" style="animation-delay:2.85s,0.00s">A</tspan><tspan class="ltA" style="animation-delay:2.98s,0.16s">L</tspan><tspan class="ltA" style="animation-delay:3.11s,0.32s">B</tspan><tspan class="ltA" style="animation-delay:3.24s,0.48s">U</tspan><tspan class="ltA" style="animation-delay:3.37s,0.64s">M</tspan><tspan class="cursor" dx="10">&#9646;</tspan></text>
+</svg></div>
+  <div class="status"><span id="line"></span><span class="cursor"></span></div>
+  <div class="bar"><i id="fill"></i></div>
+  <div class="pct" id="pct">0%</div>
+</div>
+
+<div id="site">
+  <header>
+    <div class="brand">SYSTEM <span>ALBUM</span></div>
+    <div class="live">ONLINE</div>
+  </header>
+  <main>
+    <h1>The system is <span>online</span>.</h1>
+    <p class="sub">This is what visitors see after the refresh sequence finishes — the splash above is what they see while System Album is loading or refreshing. On the real site, every refresh replays the boot.</p>
+    <button class="reload" onclick="location.reload()">REPLAY REFRESH</button>
+    <div class="hint">Or simply refresh the page — the boot plays every time.</div>
+    <div class="cards">
+      <div class="card"><span class="badge">NEW</span><b>Album slot 1</b>Newest upload appears first.</div>
+      <div class="card"><b>Album slot 2</b>Shuffles on every refresh.</div>
+      <div class="card"><b>Album slot 3</b>Different lineup each visit.</div>
+    </div>
+  </main>
+</div>
+
+<script>
+  (function () {
+    var line = document.getElementById('line');
+    var fill = document.getElementById('fill');
+    var pct  = document.getElementById('pct');
+    var splash = document.getElementById('splash');
+    var site = document.getElementById('site');
+    var reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    var steps = [
+      'CONNECTING TO SYSTEM',
+      'LOADING VOLUME WAVES',
+      'CALIBRATING ALBUM',
+      'REFRESH COMPLETE'
+    ];
+
+    if (reduced) {
+      splash.classList.add('done');
+      site.classList.add('ready');
+      return;
+    }
+
+    var t = 0, total = 4400;
+    var timers = [];
+    steps.forEach(function (s, i) {
+      t += 700 + i * 350;
+      timers.push(setTimeout(function () {
+        line.textContent = s;
+        var p = Math.min(100, Math.round((t / total) * 100));
+        fill.style.width = p + '%';
+        pct.textContent = p + '%';
+      }, t - 650));
+    });
+
+    timers.push(setTimeout(function () {
+      fill.style.width = '100%';
+      pct.textContent = '100%';
+    }, total - 300));
+
+    timers.push(setTimeout(function () {
+      splash.classList.add('done');
+      site.classList.add('ready');
+    }, total + 250));
+  })();
+</script>
+</body>
+</html>

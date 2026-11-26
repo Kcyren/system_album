@@ -10,8 +10,12 @@ const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 const isIOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
 const ROWS = 8;
-const COLORS = ['#1d3fd6', '#2449e6', '#2f5bff', '#3f6cff', '#5b86ff', '#7aa4ff', '#9fd0ff', '#dff4ff']; // bottom → top
-const OFF = 'rgba(90, 120, 220, 0.10)';
+// LED colours, bottom → top. Fire mode (html.fire) swaps blue for flames.
+const PALETTES = {
+  blue: { on: ['#1d3fd6', '#2449e6', '#2f5bff', '#3f6cff', '#5b86ff', '#7aa4ff', '#9fd0ff', '#dff4ff'], off: 'rgba(90, 120, 220, 0.10)', peak: '#e8f7ff' },
+  fire: { on: ['#7a1205', '#a3200b', '#d1340f', '#ff5a1f', '#ff7d2e', '#ffa443', '#ffc46b', '#fff1c4'], off: 'rgba(230, 100, 40, 0.10)', peak: '#fff6d8' },
+};
+const palette = () => PALETTES[document.documentElement.classList.contains('fire') ? 'fire' : 'blue'];
 
 let media = null;
 let audio = null; // { ctx, analyser, data }
@@ -101,6 +105,7 @@ function draw(canvas, state, time) {
   const rowH = (h - gap * (ROWS - 1)) / ROWS;
   const offsetX = (w - (cols * cell + (cols - 1) * gap)) / 2;
   const values = levels(cols, time);
+  const { on: COLORS, off: OFF, peak: PEAK } = palette();
   if (state.peaks.length !== cols) state.peaks = new Array(cols).fill(0);
 
   for (let c = 0; c < cols; c += 1) {
@@ -111,7 +116,7 @@ function draw(canvas, state, time) {
     const x = offsetX + c * (cell + gap);
     for (let r = 0; r < ROWS; r += 1) {
       const y = h - (r + 1) * rowH - r * gap;
-      g.fillStyle = r < lit ? COLORS[r] : r === peak - 1 && peak > lit ? '#e8f7ff' : OFF;
+      g.fillStyle = r < lit ? COLORS[r] : r === peak - 1 && peak > lit ? PEAK : OFF;
       g.beginPath();
       g.roundRect ? g.roundRect(x, y, cell, rowH, 2) : g.rect(x, y, cell, rowH);
       g.fill();

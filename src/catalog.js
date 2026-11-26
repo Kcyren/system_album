@@ -12,20 +12,22 @@ const TRACK_FIELDS =
 let featureCache = null;
 async function schemaFeatures() {
   const cached = featureCache;
-  if (cached && ((cached.value.v2 && cached.value.stats && cached.value.v3) || Date.now() - cached.at < 60 * 1000)) return cached.value;
-  const [tracksCheck, statsCheck, v3Check] = await Promise.all([
+  if (cached && ((cached.value.v2 && cached.value.stats && cached.value.v3 && cached.value.v4) || Date.now() - cached.at < 60 * 1000)) return cached.value;
+  const [tracksCheck, statsCheck, v3Check, v4Check] = await Promise.all([
     db.from('tracks').select('lyrics,waveform').limit(1),
     db.from('play_daily').select('day').limit(1),
     db.from('profile').select('featured_track_id').limit(1).then(async (r) => (r.error ? r : db.from('tracks').select('announced_at').limit(1))),
+    db.from('shoutouts').select('id').limit(1).then(async (r) => (r.error ? r : db.from('tracks').select('lyrics_timing').limit(1)))
+      .then(async (r) => (r.error ? r : db.from('listeners').select('visitor').limit(1))),
   ]);
-  const value = { v2: !tracksCheck.error, stats: !statsCheck.error, v3: !v3Check.error };
+  const value = { v2: !tracksCheck.error, stats: !statsCheck.error, v3: !v3Check.error, v4: !v4Check.error };
   featureCache = { value, at: Date.now() };
   return value;
 }
 
 async function trackFields() {
-  const { v2, v3 } = await schemaFeatures();
-  return TRACK_FIELDS + (v2 ? ',lyrics,waveform' : '') + (v3 ? ',announced_at' : '');
+  const { v2, v3, v4 } = await schemaFeatures();
+  return TRACK_FIELDS + (v2 ? ',lyrics,waveform' : '') + (v3 ? ',announced_at' : '') + (v4 ? ',lyrics_timing' : '');
 }
 
 function mapTrack(row, reactionTotals = {}) {
@@ -41,6 +43,7 @@ function mapTrack(row, reactionTotals = {}) {
     howMade: row.how_made,
     progressNote: row.progress_note,
     lyrics: row.lyrics ?? null,
+    lyricsTiming: Array.isArray(row.lyrics_timing) && row.lyrics_timing.some((t) => t !== null) ? row.lyrics_timing : null,
     waveform: Array.isArray(row.waveform) && row.waveform.length ? row.waveform : null,
     recordedDate: row.recorded_date,
     recordedTime: row.recorded_time ? row.recorded_time.slice(0, 5) : null,
@@ -107,7 +110,7 @@ function buildJourney(tracks, customMilestones, profile) {
 
   const auto = [];
   if (byPublished.length) {
-    auto.push({ title: 'First track shared on System Album', date: day(byPublished[0].publishedAt), track: brief(byPublished[0]) });
+    auto.push({ title: 'First track shared', date: day(byPublished[0].publishedAt), track: brief(byPublished[0]) });
   }
   if (dated.length && dated[0].id !== byPublished[0]?.id) {
     auto.push({ title: 'Earliest dated recording', date: dated[0].recordedDate, track: brief(dated[0]) });
@@ -161,4 +164,22 @@ function buildJourney(tracks, customMilestones, profile) {
   };
 }
 
-module.exports = { schemaFeatures, trackFields, mapTrack, reactionTotals, publishedTracks, publicAlbums, mapAlbum, buildJourney };
+// "Hot right now": the top tracks of the last 7 days by plays + reactions.
+// Only real activity counts, and a track needs a minimum score to qualify.
+async function hotRanks(tracks) {
+  const { stats } = await schemaFeatures();
+  if (!tracks.length) return {};
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const [plays, reactions] = await Promise.all([
+    stats ? db.from('play_daily').select('track_id,plays').gte('day', since.toISOString().slice(0, 10)).limit(5000).then(must) : [],
+    db.from('reactions').select('track_id').gte('created_at', since.toISOString()).limit(5000).then(must),
+  ]);
+  const score = {};
+  for (const row of plays) score[row.track_id] = (score[row.track_id] || 0) + row.plays;
+  for (const row of reactions) score[row.track_id] = (score[row.track_id] || 0) + 3;
+  const live = new Set(tracks.map((t) => t.id));
+  const ranked = Object.entries(score).filter(([id, s]) => live.has(id) && s >= 3).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  return Object.fromEntries(ranked.map(([id], i) => [id, i + 1]));
+}
+
+module.exports = { hotRanks, schemaFeatures, trackFields, mapTrack, reactionTotals, publishedTracks, publicAlbums, mapAlbum, buildJourney };

@@ -105,7 +105,7 @@ router.post('/login', limit(loginLimiter, 'Too many sign-in attempts. Please wai
 
   const { data, error } = await authClient().auth.signInWithPassword({ email, password });
   if (error || !data?.session) throw new HttpError(401, 'Username or password is incorrect.');
-  if (!isCreator(data.user)) throw new HttpError(403, 'This account is not allowed to manage System Album.');
+  if (!isCreator(data.user)) throw new HttpError(403, 'This account is not allowed to manage this site.');
 
   setSession(req, res, data.session);
   res.json({ email: config.displayName(data.user.email) });

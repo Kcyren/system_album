@@ -62,7 +62,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api', (req, res, next) => {
   if (config.configured) return next();
   res.status(503).json({
-    error: `System Album isn't connected to Supabase yet. Missing: ${config.missing.join(', ')}. See README → Setup.`,
+    error: `The site isn't connected to Supabase yet. Missing: ${config.missing.join(', ')}. See README → Setup.`,
     setup: true,
   });
 });

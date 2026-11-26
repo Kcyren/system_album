@@ -85,13 +85,15 @@ router.get('/overview', async (req, res) => {
     if (error) throw new HttpError(500, 'Database error.');
     return total || 0;
   };
-  const [tracks, published, drafts, albums, subscribers, reactions] = await Promise.all([
+  const { v4 } = await schemaFeatures();
+  const [tracks, published, drafts, albums, subscribers, reactions, pendingShoutouts] = await Promise.all([
     db.from('tracks').select('id,title,plays,status').then(must),
     count('tracks', (q) => q.eq('status', 'published')),
     count('tracks', (q) => q.eq('status', 'draft')),
     count('albums'),
     count('subscribers'),
     count('reactions'),
+    v4 ? count('shoutouts', (q) => q.eq('status', 'pending')) : 0,
   ]);
   res.json({
     published,
@@ -99,6 +101,7 @@ router.get('/overview', async (req, res) => {
     albums,
     subscribers,
     reactions,
+    pendingShoutouts,
     plays: tracks.reduce((sum, t) => sum + Number(t.plays || 0), 0),
     topTracks: tracks
       .filter((t) => t.status === 'published' && Number(t.plays) > 0)
@@ -110,8 +113,10 @@ router.get('/overview', async (req, res) => {
 
 // Which optional features the database supports (see supabase/migrations).
 router.get('/features', async (req, res) => {
-  const { v2, stats, v3 } = await schemaFeatures();
+  const { v2, stats, v3, v4 } = await schemaFeatures();
   res.json({
+    shoutouts: v4,
+    syncedLyrics: v4,
     lyrics: v2,
     waveform: v2,
     stats,
@@ -228,6 +233,13 @@ async function trackInput(body, existing) {
     if (wave === null) out.waveform = null;
     else if (Array.isArray(wave) && wave.length <= 400 && wave.every((n) => Number.isInteger(n) && n >= 0 && n <= 100)) out.waveform = wave;
     else throw bad('Waveform data is not valid.');
+  }
+  if (has('lyricsTiming') && body.lyricsTiming !== undefined && (await schemaFeatures()).v4) {
+    const timing = body.lyricsTiming;
+    if (timing === null) out.lyrics_timing = null;
+    else if (Array.isArray(timing) && timing.length <= 600 && timing.every((t) => t === null || (typeof t === 'number' && t >= 0 && t < 36000))) {
+      out.lyrics_timing = timing.map((t) => (t === null ? null : Math.round(t * 100) / 100));
+    } else throw bad('Lyric timing is not valid.');
   }
   if (has('status')) {
     if (body.status !== 'draft' && body.status !== 'published') throw bad('Status must be draft or published.');
@@ -403,7 +415,7 @@ router.patch('/profile', async (req, res) => {
   if (has('artistName')) out.artist_name = text(body.artistName, { name: 'Artist name', max: 60, required: true });
   if (has('tagline')) out.tagline = text(body.tagline, { name: 'Tagline', max: 140 });
   if (has('bio')) out.bio = text(body.bio, { name: 'Biography', max: 2000 });
-  if (has('siteIntro')) out.site_intro = text(body.siteIntro, { name: 'About System Album', max: 2000 });
+  if (has('siteIntro')) out.site_intro = text(body.siteIntro, { name: 'About this site', max: 2000 });
   if (has('tiktokUrl')) out.tiktok_url = urlValue(body.tiktokUrl, 'TikTok link');
   if (has('youtubeUrl')) out.youtube_url = urlValue(body.youtubeUrl, 'YouTube link');
   if (has('facebookUrl')) out.facebook_url = urlValue(body.facebookUrl, 'Facebook link');
@@ -478,6 +490,25 @@ router.get('/subscribers.csv', async (req, res) => {
 
 router.delete('/subscribers/:id', async (req, res) => {
   must(await db.from('subscribers').delete().eq('id', Number(req.params.id)));
+  res.json({ ok: true });
+});
+
+// ============================================================== shout-outs
+router.get('/shoutouts', async (req, res) => {
+  if (!(await schemaFeatures()).v4) return res.json([]);
+  const status = req.query.status === 'approved' ? 'approved' : 'pending';
+  const rows = must(await db.from('shoutouts').select('id,name,message,status,created_at,track:tracks(id,title)').eq('status', status).order('created_at', { ascending: false }).limit(200));
+  res.json(rows.map((r) => ({ id: r.id, name: r.name, message: r.message, status: r.status, createdAt: r.created_at, track: r.track })));
+});
+
+router.patch('/shoutouts/:id', async (req, res) => {
+  if (req.body?.status !== 'approved' && req.body?.status !== 'pending') throw bad('Status must be approved or pending.');
+  must(await db.from('shoutouts').update({ status: req.body.status }).eq('id', idValue(req.params.id, 'Shout-out')));
+  res.json({ ok: true });
+});
+
+router.delete('/shoutouts/:id', async (req, res) => {
+  must(await db.from('shoutouts').delete().eq('id', idValue(req.params.id, 'Shout-out')));
   res.json({ ok: true });
 });
 

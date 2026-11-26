@@ -36,6 +36,12 @@ const fail = (msg) => {
   if (v3a || v3b) fail('Update 003 not installed (featured track, release emails) — run supabase/migrations/003_featured_and_announcements.sql');
   else ok('Update 003 installed (featured track, release emails)');
 
+  const { error: v4a } = await db.from('shoutouts').select('id').limit(1);
+  const { error: v4b } = await db.from('listeners').select('visitor').limit(1);
+  const { error: v4c } = await db.from('tracks').select('lyrics_timing').limit(1);
+  if (v4a || v4b || v4c) fail('Update 004 not installed (shout-outs, live listeners, synced lyrics) — run supabase/migrations/004_shoutouts_listeners_synced_lyrics.sql');
+  else ok('Update 004 installed (shout-outs, live listeners, synced lyrics)');
+
   if (config.resendApiKey && config.emailFrom) ok(`New-release emails: on (from ${config.emailFrom})`);
   else console.log('  · New-release emails: off (optional — add RESEND_API_KEY and EMAIL_FROM)');
 

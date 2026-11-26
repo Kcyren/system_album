@@ -272,7 +272,7 @@ function head(title, text, ...actions) {
 
 // ------------------------------------------------------------- overview
 views.overview = () => {
-  const root = h('div', {}, head('Hey, welcome back.', 'Here is how System Album is doing.',
+  const root = h('div', {}, head('Hey, welcome back.', 'Here is how your music is doing.',
     h('button', { class: 'btn primary', type: 'button', html: icon('plus'), onclick: () => openTab('tracks', 'new') }, 'New recording')));
   const stats = h('div', { class: 'stats' }, h('div', { class: 'stat' }, h('b', {}, '…'), h('span', {}, 'Loading')));
   root.append(stats);
@@ -281,6 +281,12 @@ views.overview = () => {
   api('/api/studio/stats').then((data) => renderWeekly(chartPanel, data)).catch((e) => chartPanel.append(h('p', { class: 'status error' }, e.message)));
   api('/api/studio/overview').then((o) => {
     const stat = (n, label) => h('div', { class: 'stat' }, h('b', {}, n.toLocaleString()), h('span', {}, label));
+    if (o.pendingShoutouts) {
+      stats.after(h('div', { class: 'panel', style: 'margin-top:16px' },
+        h('h3', {}, `💬 ${plural(o.pendingShoutouts, 'shout-out')} waiting for you`),
+        h('p', { class: 'muted small' }, 'Listeners left messages. Approve the ones you want to show on the site.'),
+        h('div', { class: 'form-actions' }, h('button', { class: 'btn primary', type: 'button', onclick: () => openTab('shoutouts') }, 'Review shout-outs'))));
+    }
     stats.replaceChildren(
       stat(o.published, 'Published tracks'), stat(o.drafts, 'Drafts'), stat(o.plays, 'Total plays'),
       stat(o.reactions, 'Reactions'), stat(o.subscribers, 'Followers'), stat(o.albums, 'Albums'),
@@ -505,11 +511,13 @@ function trackEditor(track) {
   const title = input({ maxlength: 120, required: true, value: track?.title || '', placeholder: 'Name your recording' });
   const category = select(S.categories.map((c) => [String(c.id), c.name]), track ? String(track.categoryId) : String(S.categories[0]?.id || ''));
   const mediaFile = input({ type: 'file', accept: 'audio/*,video/mp4,video/webm,video/quicktime' });
-  const cover = imagePicker({ label: 'Cover image', currentUrl: track?.coverUrl, hint: 'Square images look best. If you skip this, a System Album cover is generated.' });
+  const cover = imagePicker({ label: 'Cover image', currentUrl: track?.coverUrl, hint: 'Square images look best. If you skip this, a cover is generated.' });
   const description = textarea({ maxlength: 2000, placeholder: 'What is this track about?' }, track?.description);
   const howMade = textarea({ maxlength: 2000, placeholder: 'The beat, your mood, what you tried…' }, track?.howMade);
   const progressNote = textarea({ maxlength: 1000, placeholder: 'What changed compared to before? What did you learn?' }, track?.progressNote);
   const lyrics = textarea({ maxlength: 10000, rows: 8, placeholder: 'Your bars, line by line', disabled: !S.features.lyrics }, track?.lyrics);
+  let timing = Array.isArray(track?.lyricsTiming) ? [...track.lyricsTiming] : null;
+  let timingTouched = false;
   const date = input({ type: 'date', value: track?.recordedDate || '' });
   const time = input({ type: 'time', value: track?.recordedTime || '' });
   const album = select([['', 'No album'], ...S.albums.map((a) => [a.id, a.title])], track?.album?.id || '');
@@ -650,6 +658,11 @@ function trackEditor(track) {
         status: nextStatus,
       };
       if (S.features.lyrics) body.lyrics = lyrics.value;
+      if (S.features.syncedLyrics) {
+        const lineCount = lyrics.value.split(/\r?\n/).length;
+        if (timingTouched) body.lyricsTiming = timing && timing.length === lineCount && timing.some((t) => t !== null) ? timing : null;
+        else if (timing && timing.length !== lineCount) body.lyricsTiming = null; // lyrics changed: old timing no longer fits
+      }
       if (canAnnounce && nextStatus === 'published' && announce.checked) body.announce = true;
       if (mediaFile.files[0] && wavePromise) {
         setStatus(status, 'Reading the waveform…');
@@ -670,7 +683,7 @@ function trackEditor(track) {
         : await api(`/api/studio/tracks/${track.id}`, { method: 'PATCH', body });
       showProgress(1);
       await refreshTracks();
-      let message = nextStatus === 'published' ? 'Published! It is live on System Album.' : 'Saved as a draft';
+      let message = nextStatus === 'published' ? 'Published! It is live on the site.' : 'Saved as a draft';
       if (saved.announcement?.sent) message += ` Emailed ${plural(saved.announcement.sent, 'follower')}.`;
       if (saved.announcement?.error) message += ` Email not sent: ${saved.announcement.error}`;
       toast(message);
@@ -708,6 +721,7 @@ function trackEditor(track) {
     field('How it was made', howMade, { optional: true }),
     field('Progress note', progressNote, { optional: true, hint: 'Shown on the Journey section and the track page.' }),
     field('Lyrics / bars', lyrics, { optional: true, hint: S.features.lyrics ? 'Shown on the track page and in the full-screen player. Searchable.' : MIGRATION_HINT }),
+    syncTool(),
     h('div', { class: 'field-grid' }, field('Recording date', date, { optional: true }), field('Recording time', time, { optional: true })),
     field('Album', album, { optional: true }),
     progress,
@@ -720,6 +734,126 @@ function trackEditor(track) {
     h('div', { class: 'panel' }, h('h3', {}, 'Listen back'), h('p', { class: 'muted small' }, 'Check your recording before you publish.'), mediaPreview, waveTools()),
     h('div', { class: 'panel' }, h('h3', {}, 'Card preview'), h('p', { class: 'muted small' }, 'How it will look on the site.'), cardPreview),
   );
+
+  // Karaoke timing: play the track and tap as each line starts.
+  function syncTool() {
+    if (!S.features.syncedLyrics) return null;
+    const wrap = h('div', { class: 'sync-tool' });
+    const fmt = (s) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
+
+    function intro() {
+      wrap.replaceChildren(
+        h('button', { class: 'btn small', type: 'button', onclick: build }, timing ? '✓ Synced — edit timing' : '🎤 Sync lyrics to the music'),
+        h('p', { class: 'hint' }, 'Play the track and tap as each line starts. On the site, the lines then light up karaoke-style.'),
+      );
+    }
+
+    function build() {
+      const src = localMediaUrl || track?.mediaUrl;
+      if (!src) return toast('Choose the audio or video file first.');
+      const lines = lyrics.value.split(/\r?\n/);
+      if (!lines.some((l) => l.trim())) return toast('Write the lyrics first.');
+      if (!timing || timing.length !== lines.length) timing = lines.map(() => null);
+      const nextIndex = (from) => {
+        for (let i = from; i < lines.length; i += 1) if (lines[i].trim()) return i;
+        return -1;
+      };
+      let next = nextIndex(0);
+      while (next >= 0 && timing[next] !== null) next = nextIndex(next + 1);
+
+      const audio = h('audio', { src, controls: true, preload: 'auto' });
+      const list = h('ol', { class: 'sync-lines' });
+      const status = h('p', { class: 'hint', role: 'status' });
+
+      function draw() {
+        list.replaceChildren(...lines.map((line, i) => h('li', {
+          class: [i === next ? 'next' : '', line.trim() ? '' : 'blank'].join(' ').trim(),
+          'data-i': String(i),
+          title: line.trim() ? 'Click to set this line to the current time' : null,
+          onclick: () => {
+            if (!line.trim()) return;
+            timing[i] = Math.round(audio.currentTime * 100) / 100;
+            timingTouched = true;
+            draw();
+          },
+        }, h('span', { class: 't' }, timing[i] === null ? '–:––' : fmt(timing[i])), h('span', {}, line || ' '))));
+        const total = lines.filter((l) => l.trim()).length;
+        const done = timing.filter((t) => t !== null).length;
+        status.textContent = next < 0 ? `All ${total} lines timed. Press Publish / Save to keep it.` : `${done} of ${total} lines timed. Next: “${lines[next].trim()}”`;
+        list.querySelector('.next')?.scrollIntoView({ block: 'nearest' });
+      }
+
+      function tap() {
+        if (next < 0) return;
+        if (audio.paused) audio.play().catch(() => {});
+        timing[next] = Math.round(audio.currentTime * 100) / 100;
+        timingTouched = true;
+        next = nextIndex(next + 1);
+        draw();
+      }
+
+      function undo() {
+        let last = -1;
+        timing.forEach((t, i) => { if (t !== null && (next < 0 || i < next)) last = i; });
+        if (last < 0) return;
+        audio.currentTime = Math.max(0, timing[last] - 2);
+        timing[last] = null;
+        timingTouched = true;
+        next = last;
+        draw();
+      }
+
+      // Highlight the line that is playing, to check the timing.
+      audio.addEventListener('timeupdate', () => {
+        let playing = -1;
+        timing.forEach((t, i) => { if (t !== null && t <= audio.currentTime + 0.1) playing = i; });
+        list.querySelectorAll('li').forEach((li) => li.classList.toggle('playing', Number(li.dataset.i) === playing));
+      });
+
+      const panel = h('div', {
+        class: 'sync-panel', tabindex: '0',
+        onkeydown: (event) => {
+          if (event.target.tagName === 'AUDIO') return;
+          if (event.code === 'Space' || event.key === 'Enter') {
+            event.preventDefault();
+            tap();
+          }
+        },
+      },
+      h('p', { class: 'hint' }, 'Press ▶ then hit TAP (or the Space bar) the moment each line starts. Click any line later to fix its time.'),
+      audio,
+      h('div', { class: 'form-actions' },
+        h('button', { class: 'btn primary', type: 'button', onclick: tap }, 'TAP — next line'),
+        h('button', { class: 'btn small', type: 'button', onclick: undo }, 'Undo'),
+        h('button', {
+          class: 'btn small', type: 'button',
+          onclick: () => {
+            timing = lines.map(() => null);
+            timingTouched = true;
+            next = nextIndex(0);
+            audio.currentTime = 0;
+            draw();
+          },
+        }, 'Start over'),
+        h('button', {
+          class: 'btn small danger', type: 'button',
+          onclick: () => {
+            timing = null;
+            timingTouched = true;
+            intro();
+            toast('Sync removed (saved when you press Save)');
+          },
+        }, 'Remove sync'),
+        h('button', { class: 'btn small', type: 'button', onclick: intro }, 'Close')),
+      status, list);
+      wrap.replaceChildren(panel);
+      draw();
+      panel.focus();
+    }
+
+    intro();
+    return wrap;
+  }
 
   function waveTools() {
     if (!track || track.waveform) return null;
@@ -980,7 +1114,7 @@ views.profile = () => {
   const artistName = input({ maxlength: 60, value: p.artistName || 'Surgthflur', required: true });
   const tagline = input({ maxlength: 140, value: p.tagline || '', placeholder: 'Shown under the big headline on the homepage' });
   const bio = textarea({ maxlength: 2000, placeholder: 'Introduce yourself in your own words' }, p.bio);
-  const siteIntro = textarea({ maxlength: 2000, placeholder: 'Why did you make System Album?' }, p.siteIntro);
+  const siteIntro = textarea({ maxlength: 2000, placeholder: 'Why did you make this site?' }, p.siteIntro);
   const tiktok = input({ type: 'url', value: p.tiktokUrl || '', placeholder: 'https://www.tiktok.com/@…' });
   const youtube = input({ type: 'url', value: p.youtubeUrl || '', placeholder: 'https://www.youtube.com/@…' });
   const facebook = input({ type: 'url', value: p.facebookUrl || '', placeholder: 'https://www.facebook.com/…' });
@@ -1014,7 +1148,7 @@ views.profile = () => {
     h('div', { class: 'field-grid' }, field('Artist name *', artistName), field('Homepage tagline', tagline, { optional: true })),
     field('Featured on the homepage', featured, { optional: true, hint: S.features.featured ? 'The track in the big spinning record. Automatic = always the newest upload.' : 'Needs database update 003: run supabase/migrations/003_featured_and_announcements.sql in Supabase.' }),
     field('About Surgthflur', bio, { optional: true }),
-    field('About System Album', siteIntro, { optional: true }),
+    field('About this site', siteIntro, { optional: true }),
     field('TikTok link', tiktok, { optional: true }),
     field('YouTube link', youtube, { optional: true }),
     field('Facebook link', facebook, { optional: true }),
@@ -1072,6 +1206,47 @@ views.categories = () => {
       }
     },
   }, field('New category', newName), h('div', { class: 'form-actions' }, h('button', { class: 'btn primary', type: 'submit' }, 'Add category'))));
+  return root;
+};
+
+// ----------------------------------------------------------- shout-outs
+views.shoutouts = (status = 'pending') => {
+  const root = h('div', {}, head('Shout-outs', 'Messages from listeners. Nothing shows on the site until you approve it.'));
+  if (!S.features.shoutouts) {
+    root.append(h('p', { class: 'empty' }, 'Needs database update 004: run supabase/migrations/004_shoutouts_listeners_synced_lyrics.sql in the Supabase SQL Editor.'));
+    return root;
+  }
+  const switcher = h('div', { class: 'form-actions', style: 'margin:0 0 14px' },
+    h('button', { class: `btn small${status === 'pending' ? ' primary' : ''}`, type: 'button', onclick: () => openTab('shoutouts', 'pending') }, 'Waiting'),
+    h('button', { class: `btn small${status === 'approved' ? ' primary' : ''}`, type: 'button', onclick: () => openTab('shoutouts', 'approved') }, 'On the site'));
+  const panel = h('div', { class: 'panel' }, h('p', { class: 'muted' }, 'Loading…'));
+  root.append(switcher, panel);
+
+  const act = async (method, id, body) => {
+    try {
+      await api(`/api/studio/shoutouts/${id}`, { method, body });
+      openTab('shoutouts', status);
+    } catch (e) {
+      toast(e.message);
+    }
+  };
+
+  api(`/api/studio/shoutouts?status=${status}`).then((rows) => {
+    if (!rows.length) {
+      panel.replaceChildren(h('p', { class: 'muted' }, status === 'pending' ? 'No new shout-outs. 🎧' : 'No approved shout-outs yet.'));
+      return;
+    }
+    panel.replaceChildren(h('ul', { class: 'list' }, ...rows.map((r) => h('li', { class: 'row no-thumb' },
+      h('div', {},
+        h('div', { class: 'row-title' }, r.name),
+        h('div', { class: 'row-sub' }, `on “${r.track?.title || 'a track'}” · ${formatDate(r.createdAt)}`),
+        h('p', { class: 'shout-msg' }, r.message)),
+      h('div', { class: 'row-actions' },
+        status === 'pending'
+          ? h('button', { class: 'btn small primary', type: 'button', onclick: () => act('PATCH', r.id, { status: 'approved' }) }, '✓ Approve')
+          : h('button', { class: 'btn small', type: 'button', onclick: () => act('PATCH', r.id, { status: 'pending' }) }, 'Hide'),
+        h('button', { class: 'btn small danger', type: 'button', onclick: () => confirm('Delete this shout-out?') && act('DELETE', r.id) }, 'Delete'))))));
+  }).catch((e) => panel.replaceChildren(h('p', { class: 'status error' }, e.message)));
   return root;
 };
 

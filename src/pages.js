@@ -31,7 +31,7 @@ function render(req, res, { title, description, image, type = 'website', status 
     `<title>${escapeHtml(title)}</title>`,
     `<meta name="description" content="${escapeHtml(description)}">`,
     `<link rel="canonical" href="${escapeHtml(url)}">`,
-    `<meta property="og:site_name" content="System Album">`,
+    `<meta property="og:site_name" content="Surgthflur - Music">`,
     `<meta property="og:type" content="${type}">`,
     `<meta property="og:title" content="${escapeHtml(title)}">`,
     `<meta property="og:description" content="${escapeHtml(description)}">`,
@@ -45,7 +45,7 @@ function render(req, res, { title, description, image, type = 'website', status 
 const DEFAULT_DESCRIPTION = 'Freestyles, mixes and short videos from Surgthflur — and the journey of getting better, one take at a time.';
 
 router.get(['/', '/index.html'], (req, res) => {
-  render(req, res, { title: 'Surgthflur | System Album', description: DEFAULT_DESCRIPTION });
+  render(req, res, { title: 'Surgthflur - Music', description: DEFAULT_DESCRIPTION });
 });
 
 router.get('/track/:id', async (req, res) => {
@@ -54,10 +54,10 @@ router.get('/track/:id', async (req, res) => {
     const id = /^[a-z0-9]{6,32}$/i.test(req.params.id) ? req.params.id : null;
     if (id) track = await db.from('tracks').select('title,description,cover_path,category:categories(name)').eq('id', id).eq('status', 'published').maybeSingle().then(must).catch(() => null);
   }
-  if (!track) return render(req, res, { title: 'Surgthflur | System Album', description: DEFAULT_DESCRIPTION });
+  if (!track) return render(req, res, { title: 'Surgthflur - Music', description: DEFAULT_DESCRIPTION });
   render(req, res, {
     title: `${track.title} — Surgthflur`,
-    description: track.description || `${track.category?.name || 'Music'} by Surgthflur on System Album.`,
+    description: track.description || `${track.category?.name || 'Music'} by Surgthflur.`,
     image: fileUrl(track.cover_path),
     type: 'music.song',
   });
@@ -69,10 +69,10 @@ router.get('/album/:id', async (req, res) => {
     const id = /^[a-z0-9]{6,32}$/i.test(req.params.id) ? req.params.id : null;
     if (id) album = await db.from('albums').select('title,description,cover_path').eq('id', id).maybeSingle().then(must).catch(() => null);
   }
-  if (!album) return render(req, res, { title: 'Surgthflur | System Album', description: DEFAULT_DESCRIPTION });
+  if (!album) return render(req, res, { title: 'Surgthflur - Music', description: DEFAULT_DESCRIPTION });
   render(req, res, {
     title: `${album.title} — Surgthflur`,
-    description: album.description || `An album by Surgthflur on System Album.`,
+    description: album.description || `An album by Surgthflur.`,
     image: fileUrl(album.cover_path),
     type: 'music.album',
   });
@@ -87,11 +87,11 @@ router.get('/unsubscribe', async (req, res) => {
   let message = 'This unsubscribe link is not valid.';
   if (token && config.configured) {
     const { error } = await db.from('subscribers').delete().eq('unsubscribe_token', token);
-    message = error ? 'Something went wrong. Please try again later.' : 'You have been unsubscribed. You will not get more emails from System Album.';
+    message = error ? 'Something went wrong. Please try again later.' : 'You have been unsubscribed. You will not get more emails from Surgthflur - Music.';
   }
-  res.type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>System Album</title>
+  res.type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Surgthflur - Music</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#080b14;color:#f7f9ff;font:16px system-ui,sans-serif;padding:16px}main{max-width:420px;text-align:center}a{color:#9db4ff}</style></head>
-<body><main><h1>System Album</h1><p>${escapeHtml(message)}</p><p><a href="/">Back to the music</a></p></main></body></html>`);
+<body><main><h1>Surgthflur - Music</h1><p>${escapeHtml(message)}</p><p><a href="/">Back to the music</a></p></main></body></html>`);
 });
 
 module.exports = { router, PUBLIC_DIR, view };

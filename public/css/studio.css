@@ -115,3 +115,17 @@ table.simple td:last-child { text-align: right; }
   .row.no-thumb { grid-template-columns: 1fr; }
   .thumb { width: 48px; height: 48px; }
 }
+
+/* Lyric sync tool */
+.sync-tool { margin-top: 10px; }
+.sync-panel { background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 10px; padding: 14px; outline: none; }
+.sync-panel:focus-visible { border-color: var(--blue-2); }
+.sync-panel audio { width: 100%; margin-top: 8px; }
+.sync-lines { list-style: none; margin: 10px 0 0; padding: 0; max-height: 300px; overflow-y: auto; display: grid; gap: 2px; }
+.sync-lines li { display: grid; grid-template-columns: 58px 1fr; gap: 10px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; color: #c3cde0; }
+.sync-lines li:hover { background: #ffffff0d; }
+.sync-lines li.blank { cursor: default; min-height: 10px; padding: 2px 8px; }
+.sync-lines li.next { background: #1b2d72; color: #fff; }
+.sync-lines li.playing { box-shadow: inset 3px 0 0 #8ea6ff; color: #fff; }
+.sync-lines .t { color: #8f9cb9; font-variant-numeric: tabular-nums; font-size: 12px; }
+.shout-msg { margin: 6px 0 0; color: #c3cde0; font-size: 13px; line-height: 1.55; white-space: pre-line; overflow-wrap: anywhere; }

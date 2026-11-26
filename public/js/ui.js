@@ -168,6 +168,7 @@ export function trackCard(track, opts = {}) {
   cover.append(
     h('span', { class: 'cover-badge', html: icon(track.mediaType === 'video' ? 'video' : 'audio') }, track.mediaType === 'video' ? 'Video' : 'Audio'),
     h('div', { class: 'eq', 'aria-hidden': 'true' }, h('i'), h('i'), h('i'), h('i')),
+    track.hot ? h('span', { class: 'hot-badge', title: 'One of the most played & loved tracks this week' }, '🔥 Hot') : null,
   );
   if (opts.onPlay) {
     cover.append(h('button', {

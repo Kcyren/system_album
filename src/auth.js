@@ -97,18 +97,18 @@ router.use(sameOrigin);
 
 router.post('/login', limit(loginLimiter, 'Too many sign-in attempts. Please wait 15 minutes.'), async (req, res) => {
   if (!config.creatorEmails.length) {
-    throw new HttpError(503, 'No creator account is set up yet. Add CREATOR_EMAIL to the server settings.');
+    throw new HttpError(503, 'No creator account is set up yet. Add CREATOR_EMAIL (a username or email) to the server settings.');
   }
-  const email = text(req.body?.email, { name: 'Email', max: 254, required: true }).toLowerCase();
+  const email = config.toLoginEmail(text(req.body?.email, { name: 'Username', max: 254, required: true }));
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
   if (!password) throw new HttpError(400, 'Password is required.');
 
   const { data, error } = await authClient().auth.signInWithPassword({ email, password });
-  if (error || !data?.session) throw new HttpError(401, 'Email or password is incorrect.');
+  if (error || !data?.session) throw new HttpError(401, 'Username or password is incorrect.');
   if (!isCreator(data.user)) throw new HttpError(403, 'This account is not allowed to manage System Album.');
 
   setSession(req, res, data.session);
-  res.json({ email: data.user.email });
+  res.json({ email: config.displayName(data.user.email) });
 });
 
 router.post('/logout', async (req, res) => {
@@ -123,7 +123,7 @@ router.post('/logout', async (req, res) => {
 
 router.get('/me', requireCreator, (req, res) => {
   res.set('Cache-Control', 'no-store');
-  res.json({ email: req.user.email });
+  res.json({ email: config.displayName(req.user.email) });
 });
 
 router.post('/password', requireCreator, async (req, res) => {

@@ -22,11 +22,13 @@ const config = {
   supabasePublishableKey: (env.SUPABASE_PUBLISHABLE_KEY || env.SUPABASE_ANON_KEY || '').trim(),
   bucket: (env.SUPABASE_BUCKET || 'media').trim(),
 
-  // Only these Supabase Auth accounts may open the Creator Studio.
-  creatorEmails: (env.CREATOR_EMAILS || env.CREATOR_EMAIL || '')
-    .split(',')
-    .map((email) => email.trim().toLowerCase())
-    .filter(Boolean),
+  // Usernames (no "@") become <username>@<LOGIN_DOMAIN> behind the scenes,
+  // because Supabase Auth needs an email-shaped login. The inbox doesn't
+  // have to exist: nothing is ever emailed to it.
+  loginDomain: (env.LOGIN_DOMAIN || 'systemalbum.app').trim().toLowerCase(),
+
+  // Only these accounts may open the Creator Studio (usernames or emails).
+  creatorEmails: [],
 
   // e.g. https://systemalbum.example.com — used for share links and previews.
   publicUrl: trimSlash(env.PUBLIC_URL),
@@ -37,6 +39,24 @@ const config = {
   // Number of proxies in front of the app (Render, Railway, etc. use 1).
   trustProxy: env.TRUST_PROXY !== undefined ? Number(env.TRUST_PROXY) || false : env.NODE_ENV === 'production' || env.VERCEL ? 1 : false,
 };
+
+// "surgthflur" -> "surgthflur@systemalbum.app"; real emails stay as they are.
+config.toLoginEmail = (value) => {
+  const clean = String(value || '').trim().toLowerCase();
+  if (!clean) return '';
+  return clean.includes('@') ? clean : `${clean}@${config.loginDomain}`;
+};
+
+// Shows "surgthflur" instead of the behind-the-scenes email.
+config.displayName = (email) => {
+  const clean = String(email || '').toLowerCase();
+  return clean.endsWith(`@${config.loginDomain}`) ? clean.slice(0, -(config.loginDomain.length + 1)) : clean;
+};
+
+config.creatorEmails = (env.CREATOR_EMAILS || env.CREATOR_EMAIL || env.CREATOR_USERNAME || '')
+  .split(',')
+  .map(config.toLoginEmail)
+  .filter(Boolean);
 
 config.missing = [
   ['SUPABASE_URL', config.supabaseUrl],

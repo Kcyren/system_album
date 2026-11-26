@@ -28,7 +28,7 @@ A music showcase and installable app for **Surgthflur**: freestyles, mixes, shor
 1. Sign in at [supabase.com](https://supabase.com) and click **New project**.
 2. Open **SQL Editor → New query**, paste everything from [`supabase/schema.sql`](supabase/schema.sql) and press **Run**. This creates the tables, the default categories (Freestyle, Mix, Video) and the `media` storage bucket.
    Then do the same with each file in [`supabase/migrations/`](supabase/migrations/), in order. `002` adds lyrics, waveforms and weekly play stats.
-3. Go to **Authentication → Users → Add user → Create new user**. Enter Surgthflur's email and a strong password, and tick **Auto Confirm User**.
+3. (The creator account is made in step 2 with `npm run creator`, so no real email inbox is needed.)
 4. Go to **Authentication → Sign In / Providers** and turn **off** "Allow new users to sign up". Nobody else needs an account.
 
 ### 2. Connect the code
@@ -37,11 +37,12 @@ A music showcase and installable app for **Surgthflur**: freestyles, mixes, shor
    - `SUPABASE_URL`: the Project URL
    - `SUPABASE_PUBLISHABLE_KEY`: the publishable key (or the legacy `anon` key)
    - `SUPABASE_SECRET_KEY`: the secret key (or the legacy `service_role` key). **Never share or commit this.**
-   - `CREATOR_EMAIL`: the email from step 1.3
+   - `CREATOR_EMAIL`: his **username**, e.g. `surgthflur` (or a real email if he has one)
 3. Run:
 
 ```bash
 npm install
+npm run creator # creates his account, or sets a new password (asks you to type it)
 npm run check   # confirms tables, storage, security and the creator account
 npm run dev     # starts the site and restarts it automatically when you edit files
 ```
@@ -69,6 +70,12 @@ In Supabase, open **Authentication → URL Configuration**:
   - `http://localhost:3000/**` (for testing on your computer)
 
 Sign-in uses email and password through the server, so it works without these. They make sure any email Supabase sends, such as a password reset, links back to your site and not to `localhost`. If you add a custom domain later, add it here and update `PUBLIC_URL` in Vercel.
+
+### The creator account (username + password)
+- **Sign in:** **Username** = whatever is in `CREATOR_EMAIL` (e.g. `surgthflur`), plus the password.
+- **Create the account or reset the password:** run `npm run creator` on your computer (it uses the secret key in `.env`). It works even if he forgot the old password, and it never needs an email inbox.
+- **Change the password while signed in:** Studio → **Account**.
+- Behind the scenes, a username becomes `username@systemalbum.app`, because Supabase needs an email-shaped login. Nothing is ever emailed there. When he has a real Gmail, set `CREATOR_EMAIL` to it, update the user's email in Supabase → Authentication → Users, and redeploy.
 
 ### Where the creator signs in
 **https://studioalbum.vercel.app/studio** (also linked as "Creator Studio" in the site footer). Only the email in `CREATOR_EMAIL`, with a matching Supabase Auth user, can get in.

@@ -46,15 +46,15 @@ const fail = (msg) => {
   else ok('Row Level Security protects private data');
 
   if (!config.creatorEmails.length) {
-    fail('CREATOR_EMAIL is not set in .env');
+    fail('CREATOR_EMAIL is not set in .env — put his username there, e.g. CREATOR_EMAIL=surgthflur');
   } else {
     const { data, error } = await db.auth.admin.listUsers({ perPage: 1000 });
     if (error) fail(`Could not list users: ${error.message}`);
     for (const email of config.creatorEmails) {
       const user = data?.users.find((u) => u.email?.toLowerCase() === email);
-      if (!user) fail(`No Supabase Auth user for ${email} — add one in Authentication → Users`);
-      else if (!user.email_confirmed_at) fail(`${email} exists but is not confirmed — tick "Auto Confirm User" when creating it`);
-      else ok(`Creator account ${email} is ready`);
+      if (!user) fail(`No account for "${config.displayName(email)}" yet — run: npm run creator`);
+      else if (!user.email_confirmed_at) fail(`"${config.displayName(email)}" is not confirmed — run: npm run creator`);
+      else ok(`Creator account "${config.displayName(email)}" is ready`);
     }
   }
 

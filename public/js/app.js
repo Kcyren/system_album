@@ -180,8 +180,16 @@ function lyricTiming(track) {
 function lyricLines(track) {
   const timing = lyricTiming(track);
   return lyricRows(track).map((line, i) => h('span', {
-    class: 'ly-line', 'data-i': String(i), 'data-t': timing?.[i] ?? '',
+    class: line.trim() ? 'ly-line' : 'ly-line ly-gap', 'data-i': String(i), 'data-t': timing?.[i] ?? '',
   }, line || '\u00a0'));
+}
+
+// Like Spotify: if the listener scrolls the lyrics, stop following the song for a few seconds.
+for (const type of ['wheel', 'touchmove']) {
+  document.addEventListener(type, (event) => {
+    const scroller = event.target.closest?.('.lyrics.synced, .np-lyrics');
+    if (scroller) scroller.dataset.userScroll = String(Date.now());
+  }, { passive: true });
 }
 
 // The current line pops up over the cover (cards, track page, full screen).
@@ -248,7 +256,9 @@ function updateLyrics(force = false) {
     });
     const line = box.querySelector('.ly-line.active');
     const scroller = box.closest('.np-lyrics') || box;
-    if (line && scroller.scrollHeight > scroller.clientHeight) {
+    const userScrolled = Date.now() - Number(scroller.dataset.userScroll || 0) < 3500;
+    if (line && scroller.scrollHeight > scroller.clientHeight && (force || !userScrolled)) {
+      // Keep the line being sung in the middle of the lyrics box.
       scroller.scrollTo({ top: line.offsetTop - scroller.clientHeight / 2 + line.offsetHeight / 2, behavior: 'smooth' });
     }
   });

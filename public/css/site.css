@@ -981,3 +981,45 @@ html.fire .queue-label { color: #ffb37a; }
   .np-play { width: 54px; height: 54px; }
 }
 .player.expanded .np-title { color: #fff; }
+
+/* ==========================================================================
+   Spotify-style synced lyrics (track page + full-screen player)
+   ========================================================================== */
+.lyrics.synced, .np-lyrics:has(.synced) {
+  --ly-bg-1: #2448d8; --ly-bg-2: #13247a;
+  position: relative; max-height: min(460px, 60dvh); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none;
+  padding: 0 26px; margin-top: 8px; border-radius: 16px; white-space: normal;
+  background: linear-gradient(160deg, var(--ly-bg-1), var(--ly-bg-2));
+  /* soft fade at the top and bottom */
+  -webkit-mask-image: linear-gradient(transparent 0, #000 16%, #000 84%, transparent 100%);
+  mask-image: linear-gradient(transparent 0, #000 16%, #000 84%, transparent 100%);
+}
+.lyrics.synced::-webkit-scrollbar, .np-lyrics:has(.synced)::-webkit-scrollbar { display: none; }
+html.fire .lyrics.synced, html.fire .np-lyrics:has(.synced) { --ly-bg-1: #c2310c; --ly-bg-2: #5a1406; }
+
+/* room above the first line and below the last, so any line can sit in the middle */
+.lyrics.synced::before, .lyrics.synced::after { content: ''; display: block; height: 42%; min-height: 120px; }
+.np-lyrics:has(.synced) p.synced { margin: 0; }
+.np-lyrics:has(.synced) p.synced::before, .np-lyrics:has(.synced) p.synced::after { content: ''; display: block; height: 30%; min-height: 70px; }
+.np-lyrics:has(.synced) > .label { position: sticky; top: 0; z-index: 1; padding-top: 16px; color: #fff; opacity: .75; }
+
+.synced .ly-line { display: block; margin: 0; padding: 7px 0; border-radius: 0; background: none !important; transform: none !important; cursor: pointer;
+  font: 800 clamp(20px, 2.2vw, 28px)/1.3 'Space Grotesk', sans-serif; letter-spacing: -.02em;
+  color: rgb(0 0 0 / .5); text-shadow: none; transition: color .35s, opacity .35s; }
+.synced .ly-line.done { color: rgb(255 255 255 / .62); }
+.synced .ly-line.active { color: #fff; text-shadow: 0 0 22px rgb(255 255 255 / .35); }
+.synced .ly-line:hover { color: rgb(255 255 255 / .9); }
+.synced .ly-gap { height: 14px; padding: 0; font-size: 0; pointer-events: none; }
+html.fire .synced .ly-line { color: rgb(0 0 0 / .45); }
+html.fire .synced .ly-line.done { color: rgb(255 240 230 / .65); }
+html.fire .synced .ly-line.active { color: #fff; }
+
+.player.expanded .np-lyrics:has(.synced) { padding: 0 22px; }
+.player.expanded .np-lyrics:has(.synced) .ly-line { font-size: clamp(18px, 1.8vw, 24px); }
+@media (max-width: 650px) {
+  .lyrics.synced { padding: 0 18px; max-height: 52dvh; }
+  .synced .ly-line { font-size: 21px; }
+}
+.player.expanded .np-lyrics:not([hidden]):has(.synced) { background: linear-gradient(160deg, var(--ly-bg-1), var(--ly-bg-2)); border: 0; padding: 0 22px; max-height: min(34dvh, 320px); }
+.np-lyrics:has(.synced) > .label { display: none; }
+.player.expanded .np-title { color: #fff !important; }

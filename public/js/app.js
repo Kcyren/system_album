@@ -313,11 +313,8 @@ function setupPlayer() {
     $('#btn-mute').setAttribute('aria-label', media.muted ? 'Unmute' : 'Mute');
   });
   media.addEventListener('ended', () => {
+    // Next track in the queue, otherwise stay put showing the end (press play to replay).
     if (player.index < player.queue.length - 1) step(1);
-    else {
-      media.currentTime = 0;
-      setExpanded(false);
-    }
   });
   media.addEventListener('error', () => {
     if (!player.track) return;

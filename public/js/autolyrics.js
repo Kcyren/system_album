@@ -11,16 +11,42 @@ function getWorker() {
 }
 
 // Whisper needs mono audio at 16 kHz.
+// Also cuts the heavy bass and lifts the voice range, so the words stand out
+// from the beat (this more than doubles what the listening tool can hear in rap).
+const audioCache = new Map();
 async function decode16k(source) {
+  const key = source instanceof Blob ? source : String(source);
+  if (audioCache.has(key)) return audioCache.get(key).slice();
   const buffer = source instanceof Blob ? await source.arrayBuffer() : await fetch(source).then((r) => r.arrayBuffer());
-  const audio = await new OfflineAudioContext(1, 1, 16000).decodeAudioData(buffer);
-  if (audio.numberOfChannels === 1) return audio.getChannelData(0).slice();
-  const mono = new Float32Array(audio.length);
-  for (let c = 0; c < audio.numberOfChannels; c += 1) {
-    const data = audio.getChannelData(c);
-    for (let i = 0; i < data.length; i += 1) mono[i] += data[i] / audio.numberOfChannels;
-  }
-  return mono;
+  const decoded = await new OfflineAudioContext(1, 1, 16000).decodeAudioData(buffer);
+  const ctx = new OfflineAudioContext(1, decoded.length, 16000);
+  const node = ctx.createBufferSource();
+  node.buffer = decoded;
+  const filter = (type, frequency, { Q, gain } = {}) => {
+    const f = ctx.createBiquadFilter();
+    f.type = type;
+    f.frequency.value = frequency;
+    if (Q) f.Q.value = Q;
+    if (gain) f.gain.value = gain;
+    return f;
+  };
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -30;
+  comp.ratio.value = 6;
+  node.connect(filter('highpass', 250, { Q: 0.8 }))
+    .connect(filter('highpass', 250, { Q: 0.8 }))
+    .connect(filter('peaking', 2500, { Q: 0.9, gain: 6 }))
+    .connect(filter('lowpass', 5000))
+    .connect(comp)
+    .connect(ctx.destination);
+  node.start();
+  const mono = (await ctx.startRendering()).getChannelData(0).slice();
+  let peak = 0;
+  for (let i = 0; i < mono.length; i += 1) peak = Math.max(peak, Math.abs(mono[i]));
+  if (peak > 0) for (let i = 0; i < mono.length; i += 1) mono[i] /= peak;
+  audioCache.clear();
+  audioCache.set(key, mono);
+  return mono.slice();
 }
 
 // Listens to the recording. Returns { text, words: [{ text, start, end }], duration }.

@@ -1066,7 +1066,7 @@ function trackEditor(track) {
     let listenTimer = 0;
     // Language of the song (remembered). Pick Español for Spanish and Spanglish songs.
     const savedLang = localStorage.getItem('sa_asr_lang');
-    const langPick = select([['english', 'English'], ['spanish', 'Español — or mixed Spanish + English']], savedLang === 'spanish' ? 'spanish' : 'english', { 'aria-label': 'Song language' });
+    const langPick = select([['english', 'English'], ['spanish', 'Español'], ['mixed', 'Mixed / not sure (tries both)']], ['english', 'spanish', 'mixed'].includes(savedLang) ? savedLang : 'mixed', { 'aria-label': 'Song language' });
     langPick.addEventListener('change', () => { try { localStorage.setItem('sa_asr_lang', langPick.value); } catch { /* ignore */ } });
     async function autoRun(mode) {
       const src = mediaFile.files[0] || localMediaUrl || track?.mediaUrl;
@@ -1077,7 +1077,7 @@ function trackEditor(track) {
       say('Getting ready…');
       try {
         const { transcribe, alignLines, wordsToLines } = await autoLyrics();
-        const heard = await transcribe(src, (p) => {
+        const listen = (language) => transcribe(src, (p) => {
           if (p.stage === 'download') say(`Downloading the listening tool… ${p.pct !== null && p.pct !== undefined ? `${p.pct}%` : `${p.mb} MB`} (only the first time per language setting, about 80 MB)`);
           if (p.stage === 'decode') say('Reading the recording…');
           if (p.stage === 'listen') {
@@ -1088,8 +1088,21 @@ function trackEditor(track) {
             tick();
             listenTimer = setInterval(tick, 1000);
           }
-        }, langPick.value);
-        if (!heard.words.length) throw new Error("Couldn't hear any words. Is the voice loud enough over the beat?");
+        }, language);
+        const lines = lyrics.value.split(/\r?\n/);
+        const lyricWordCount = lines.join(' ').split(/\s+/).filter(Boolean).length;
+        // How good a listen was: matched lines if lyrics exist, otherwise words heard.
+        const score = (h) => (mode === 'align' ? alignLines(lines, h.words, h.duration).matched * 1000 : 0) + h.words.length;
+        const first = langPick.value === 'mixed' ? 'spanish' : langPick.value;
+        let heard = await listen(first);
+        const weak = heard.words.length < Math.max(12, (mode === 'align' ? lyricWordCount : 40) * 0.35);
+        if (langPick.value === 'mixed' || weak) {
+          const other = first === 'spanish' ? 'english' : 'spanish';
+          say(`Trying ${other === 'spanish' ? 'Spanish' : 'English'} too, to catch more words…`);
+          const second = await listen(other);
+          if (score(second) > score(heard)) heard = second;
+        }
+        if (!heard.words.length) throw new Error("Couldn't make out the words over the beat. Try another Song language, or tap along");
         if (mode === 'write') {
           const result = wordsToLines(heard.words);
           lyrics.value = result.lines.join(String.fromCharCode(10));
@@ -1099,7 +1112,6 @@ function trackEditor(track) {
           intro();
           say(`✨ Wrote ${result.lines.length} lines and synced them. Read them through and fix any wrong words — the timing stays.`);
         } else {
-          const lines = lyrics.value.split(/\r?\n/);
           const result = alignLines(lines, heard.words, heard.duration);
           timing = result.timing;
           lineEnds = result.ends;

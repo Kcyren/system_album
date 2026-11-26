@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#080b14">
+<meta name="robots" content="noindex, nofollow">
+<title>Creator Studio | System Album</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/css/site.css">
+<link rel="stylesheet" href="/css/studio.css">
+<script type="module" src="/js/studio.js"></script>
+</head>
+<body class="studio-body">
+<div class="shell">
+  <header class="header">
+    <a class="brand" href="/"><span class="brand-mark">S</span> SYSTEM<span class="brand-dot">.</span>ALBUM <span class="studio-tag">Studio</span></a>
+    <nav class="nav" aria-label="Studio">
+      <a href="/" target="_blank" rel="noopener">View site ↗</a>
+      <button class="nav-install" id="logout" type="button" hidden>Sign out</button>
+    </nav>
+  </header>
+
+  <main id="main">
+    <!-- ---------------------------------------------------------- sign in -->
+    <section class="login" id="login" hidden>
+      <form class="panel login-card" id="login-form">
+        <div class="label">Creator Studio</div>
+        <h1 class="login-title">Welcome back.</h1>
+        <p class="muted">Sign in to upload music and update System Album. Visitors never need an account.</p>
+        <div class="field"><label for="login-email">Email</label><input id="login-email" name="email" type="email" autocomplete="username" required></div>
+        <div class="field"><label for="login-password">Password</label><input id="login-password" name="password" type="password" autocomplete="current-password" required></div>
+        <button class="btn primary wide" type="submit">Sign in</button>
+        <p class="status error" id="login-message" role="alert"></p>
+      </form>
+    </section>
+
+    <!-- ------------------------------------------------------------- app -->
+    <section class="studio" id="app" hidden>
+      <nav class="tabs" id="tabs" aria-label="Studio sections">
+        <button type="button" data-tab="overview">Overview</button>
+        <button type="button" data-tab="tracks">Tracks</button>
+        <button type="button" data-tab="albums">Albums</button>
+        <button type="button" data-tab="journey">Journey</button>
+        <button type="button" data-tab="profile">Profile</button>
+        <button type="button" data-tab="categories">Categories</button>
+        <button type="button" data-tab="followers">Followers</button>
+        <button type="button" data-tab="account">Account</button>
+      </nav>
+      <div id="panel" class="studio-panel" tabindex="-1"></div>
+    </section>
+
+    <div class="loading" id="loading">Loading the studio…</div>
+  </main>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

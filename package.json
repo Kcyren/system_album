@@ -1,0 +1,21 @@
+{
+  "name": "system-album",
+  "version": "1.0.0",
+  "description": "System Album — Surgthflur's music showcase and Creator Studio",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "icons": "node scripts/make-icons.js",
+    "check": "node scripts/check.js"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.119.2",
+    "express": "^5.3.0"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=22.12"
+  }
+}

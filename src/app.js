@@ -28,9 +28,15 @@ const csp = [
   "object-src 'none'",
 ].join('; ');
 
+// The Creator Studio may also load the free in-browser speech model (auto-lyrics).
+const studioCsp = csp
+  .replace("script-src 'self'", "script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval'")
+  .replace(`connect-src 'self' ${supabase}`, `connect-src 'self' ${supabase} https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co https://*.hf.co`)
+  .replace("worker-src 'self'", "worker-src 'self' blob:");
+
 app.use((req, res, next) => {
   res.set({
-    'Content-Security-Policy': csp,
+    'Content-Security-Policy': req.path === '/studio' ? studioCsp : csp,
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',

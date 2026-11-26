@@ -17,6 +17,7 @@ const state = {
   query: '',
   discoverIds: [],
   homeScroll: 0,
+  view: 'home', // home | music | albums | journey | about
   features: {},
   trackPoll: 0,
   loaded: false,
@@ -346,6 +347,8 @@ function load(track, autoplay) {
   markCurrent();
   updateMediaSession(track);
 
+  if (!$('#queue-panel').hidden) renderQueue();
+
   // A video plays best in the big view; audio stays in the mini player.
   if (isVideo) setExpanded(true);
 
@@ -375,6 +378,7 @@ function step(direction) {
 }
 
 function closePlayer() {
+  setQueueOpen(false);
   stopLive();
   clearLyricPops();
   media.pause();
@@ -388,6 +392,7 @@ function closePlayer() {
 }
 
 function setExpanded(open) {
+  if (!open && document.fullscreenElement) document.exitFullscreen().catch(() => {});
   playerEl.classList.toggle('expanded', open);
   document.body.classList.toggle('player-open', open);
   if (open) $('#btn-collapse').focus({ preventScroll: true });
@@ -447,7 +452,73 @@ function countPlay(track) {
     .catch(() => {});
 }
 
+// ================================================================ playlist
+// Tap the list button beside ⏮ to see what's playing, what's up next, and
+// every track — tap any title to play it.
+function queueRow(track, onPick) {
+  const current = player.track?.id === track.id;
+  return h('button', { class: `queue-row${current ? ' is-current' : ''}`, type: 'button', onclick: onPick },
+    h('span', { class: 'queue-thumb' }, artFor(track, { alt: false, still: true })),
+    h('span', { class: 'queue-text' },
+      h('b', {}, track.title),
+      h('small', {}, [track.category, track.duration ? formatDuration(track.duration) : null].filter(Boolean).join(' · '))),
+    current ? h('span', { class: 'queue-now', 'aria-label': 'Now playing' }, h('i'), h('i'), h('i')) : null);
+}
+
+function renderQueue() {
+  const groups = [];
+  const current = player.track;
+  if (current) groups.push(h('div', { class: 'queue-label' }, 'Now playing'), queueRow(current, () => togglePlay()));
+  const upNext = player.queue.slice(player.index + 1);
+  if (upNext.length) {
+    groups.push(h('div', { class: 'queue-label' }, 'Up next'), ...upNext.map((track, i) => queueRow(track, () => {
+      fxGesture();
+      player.pendingSeek = null;
+      player.pendingRaw = null;
+      player.index += 1 + i;
+      load(player.queue[player.index], true);
+    })));
+  }
+  groups.push(h('div', { class: 'queue-label' }, `All music · ${plural(state.tracks.length, 'track')}`),
+    ...state.tracks.map((track) => queueRow(track, () => playTrack(track, state.tracks))));
+  $('#queue-body').replaceChildren(...groups);
+}
+
+function setQueueOpen(open) {
+  $('#queue-panel').hidden = !open;
+  $('#btn-queue').setAttribute('aria-expanded', String(open));
+  document.body.classList.toggle('queue-open', open);
+  if (open) renderQueue();
+}
+
 function setupPlayer() {
+  $('#btn-queue').addEventListener('click', (event) => {
+    event.stopPropagation();
+    setQueueOpen($('#queue-panel').hidden);
+  });
+  $('#queue-close').addEventListener('click', () => setQueueOpen(false));
+  document.addEventListener('click', (event) => {
+    const panel = $('#queue-panel');
+    if (!panel.hidden && !panel.contains(event.target) && !event.target.closest('#btn-queue')) setQueueOpen(false);
+  });
+
+  // True full screen (fills the whole display) from the expanded player.
+  const fullBtn = $('#btn-fullscreen');
+  if (document.fullscreenEnabled && document.documentElement.requestFullscreen) fullBtn.hidden = false;
+  fullBtn.addEventListener('click', () => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else {
+      setExpanded(true);
+      document.documentElement.requestFullscreen().catch(() => {}); // whole page, so the playlist still shows
+    }
+  });
+  document.addEventListener('fullscreenchange', () => {
+    const on = Boolean(document.fullscreenElement);
+    fullBtn.innerHTML = icon(on ? 'minimize' : 'maximize');
+    fullBtn.setAttribute('aria-label', on ? 'Exit full screen' : 'Fill the whole screen');
+    playerEl.classList.toggle('is-fullscreen', on);
+  });
+
   // Needed so the LED effects can "hear" the music (Supabase allows this).
   media.crossOrigin = 'anonymous';
   initFx(media);
@@ -535,6 +606,7 @@ function setupPlayer() {
     }
     updateWaves();
     updateLyrics();
+    if (playLength()) playerEl.style.setProperty('--progress', `${Math.min(100, (playPosition() / playLength()) * 100).toFixed(2)}%`);
   });
   let muteIcon = '';
   media.addEventListener('volumechange', () => {
@@ -552,7 +624,8 @@ function setupPlayer() {
   });
 
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && playerEl.classList.contains('expanded')) setExpanded(false);
+    if (event.key === 'Escape' && !$('#queue-panel').hidden) setQueueOpen(false);
+    else if (event.key === 'Escape' && playerEl.classList.contains('expanded')) setExpanded(false);
     const typing = /INPUT|TEXTAREA|SELECT|BUTTON/.test(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
     if (event.code === 'Space' && player.track && !typing) {
       event.preventDefault();
@@ -811,15 +884,19 @@ function matches(track) {
 }
 
 function renderBrowse() {
-  const filtering = state.filter !== 'All' || state.query;
+  // The Music page lists everything (with search + filters); home shows hot / latest / discover.
+  const searching = state.filter !== 'All' || state.query;
+  const filtering = state.view === 'music' || searching;
   $('#results-block').hidden = !filtering;
   $('#browse-block').hidden = Boolean(filtering);
 
   if (filtering) {
     const found = state.tracks.filter(matches);
-    $('#results-label').textContent = found.length
-      ? `${plural(found.length, 'result')}${state.filter !== 'All' ? ` in ${state.filter}` : ''}`
-      : 'No results';
+    $('#results-label').textContent = !searching
+      ? `All music · ${plural(found.length, 'track')}`
+      : found.length
+        ? `${plural(found.length, 'result')}${state.filter !== 'All' ? ` in ${state.filter}` : ''}`
+        : 'No results';
     fillGrid($('#results'), found, 'Nothing matches that yet. Try another word or category.');
     return;
   }
@@ -856,8 +933,24 @@ function albumCard(album) {
 }
 
 function renderAlbums() {
-  $('#albums').hidden = state.albums.length === 0;
-  $('#album-grid').replaceChildren(...shuffle(state.albums).map(albumCard));
+  $('#album-grid').replaceChildren(...(state.albums.length
+    ? shuffle(state.albums).map(albumCard)
+    : [h('p', { class: 'empty' }, 'No albums yet. When Surgthflur groups tracks into a collection, it will show up here.')]));
+}
+
+// Home "Explore" cards with a live peek at each page.
+function renderExplore() {
+  const albums = state.albums.length;
+  $('#explore-albums').textContent = albums
+    ? `${plural(albums, 'collection')} · ${plural(state.albums.reduce((n, a) => n + a.trackIds.length, 0), 'track')}`
+    : 'Collections are coming soon.';
+  const milestones = state.journey?.milestones || [];
+  const latest = milestones[milestones.length - 1];
+  $('#explore-journey').textContent = latest
+    ? `Latest milestone: ${latest.title}`
+    : 'Milestones, then & now, and the timeline.';
+  const bio = state.profile?.bio;
+  $('#explore-about').textContent = bio ? `“${bio.length > 90 ? `${bio.slice(0, 88).trim()}…` : bio}”` : 'Meet the artist and follow for new drops.';
 }
 
 function miniPlay(track) {
@@ -945,6 +1038,7 @@ function renderAbout() {
 }
 
 function renderHome() {
+  renderExplore();
   renderHero();
   renderChips();
   renderBrowse();
@@ -990,7 +1084,7 @@ function setupHome() {
 // =========================================================== track page
 function pageShell(...children) {
   return h('div', { class: 'page' },
-    h('a', { class: 'back', href: '/#music', 'data-link': true, html: icon('back') }, 'Back to the music'),
+    h('a', { class: 'back', href: '/music', 'data-link': true, html: icon('back') }, 'Back to the music'),
     ...children,
   );
 }
@@ -1153,6 +1247,7 @@ function showAlbum(id) {
 // ================================================================ router
 function showPage(content, title) {
   clearInterval(state.trackPoll);
+  document.querySelectorAll('[data-nav]').forEach((a) => a.removeAttribute('aria-current'));
   if (!$('#home').hidden) state.homeScroll = scrollY;
   $('#home').hidden = true;
   const page = $('#page');
@@ -1169,26 +1264,48 @@ function showPage(content, title) {
   $('#main').focus({ preventScroll: true });
 }
 
-function showHome(hash) {
+const VIEWS = ['music', 'albums', 'journey', 'about'];
+const VIEW_TITLES = { home: '', music: 'Music', albums: 'Albums', journey: 'The journey', about: 'About' };
+
+// Home and the four section pages share one page; CSS shows the right parts.
+function showHome(view = 'home') {
   clearInterval(state.trackPoll);
   const wasHidden = $('#home').hidden;
+  const previous = state.view;
+  if (!wasHidden && previous === 'home' && view !== 'home') state.homeScroll = scrollY;
+  state.view = view;
+  document.body.dataset.view = view;
+  document.querySelectorAll('[data-nav]').forEach((a) => {
+    if (a.dataset.nav === view) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
+  });
   $('#page').hidden = true;
   $('#page').replaceChildren();
   $('#home').hidden = false;
-  document.title = `${state.profile?.artistName || 'Surgthflur'} - Music`;
+  const name = state.profile?.artistName || 'Surgthflur';
+  document.title = VIEW_TITLES[view] ? `${VIEW_TITLES[view]} — ${name} - Music` : `${name} - Music`;
+  if (previous !== view && (view === 'music' || previous === 'music')) renderBrowse();
+  watchVideos($('#home'));
   markCurrent();
-  const target = hash && document.getElementById(hash.slice(1));
-  if (target) target.scrollIntoView({ behavior: wasHidden ? 'instant' : 'smooth' });
-  else if (wasHidden) scrollTo({ top: state.homeScroll, behavior: 'instant' });
+  updateLyrics(true);
+  if (view === 'home' && (wasHidden || previous !== 'home')) scrollTo({ top: state.homeScroll, behavior: 'instant' });
+  else if (view !== 'home') scrollTo({ top: 0, behavior: 'instant' });
 }
 
 function route() {
   if (!state.loaded) return;
-  const path = location.pathname;
+  const path = location.pathname.replace(/\/+$/, '') || '/';
+  // Old links like /#journey now open the Journey page.
+  const hashView = location.hash.slice(1);
+  if (path === '/' && VIEWS.includes(hashView)) {
+    history.replaceState(null, '', `/${hashView}`);
+    showHome(hashView);
+    return;
+  }
   let match;
-  if ((match = path.match(/^\/track\/([a-z0-9]+)\/?$/i))) showTrack(match[1]);
-  else if ((match = path.match(/^\/album\/([a-z0-9]+)\/?$/i))) showAlbum(match[1]);
-  else showHome(location.hash);
+  if ((match = path.match(/^\/track\/([a-z0-9]+)$/i))) showTrack(match[1]);
+  else if ((match = path.match(/^\/album\/([a-z0-9]+)$/i))) showAlbum(match[1]);
+  else showHome(VIEWS.find((v) => path === `/${v}`) || 'home');
 }
 
 function setupRouter() {
@@ -1199,11 +1316,6 @@ function setupRouter() {
     if (url.origin !== location.origin) return;
     event.preventDefault();
     if (playerEl.classList.contains('expanded')) setExpanded(false);
-    if (url.pathname === location.pathname && url.hash && url.pathname === '/') {
-      history.replaceState(null, '', url.pathname + url.hash);
-      showHome(url.hash);
-      return;
-    }
     history.pushState(null, '', url.pathname + url.search + url.hash);
     route();
   });
@@ -1271,11 +1383,19 @@ const splash = {
   },
   async finish() {
     if (!this.el) return;
-    // Give the logo animation time to play (about 2 s after the page opened).
-    const wait = reducedMotion.matches ? 0 : Math.max(0, 2100 - performance.now());
+    // The full logo animation (~2 s) plays only when the app is first opened;
+    // refreshes and later visits in the same tab go straight to the music.
+    let firstOpen = true;
+    try {
+      firstOpen = !sessionStorage.getItem('sa_opened');
+      sessionStorage.setItem('sa_opened', '1');
+    } catch {
+      // storage blocked: treat as first open
+    }
+    const wait = reducedMotion.matches || !firstOpen ? 0 : Math.max(0, 2100 - performance.now());
     await new Promise((resolve) => setTimeout(resolve, wait));
     this.step('READY', 100);
-    await new Promise((resolve) => setTimeout(resolve, reducedMotion.matches ? 0 : 280));
+    await new Promise((resolve) => setTimeout(resolve, reducedMotion.matches || !firstOpen ? 0 : 280));
     this.el.classList.add('done');
     setTimeout(() => this.el?.remove(), 900);
   },

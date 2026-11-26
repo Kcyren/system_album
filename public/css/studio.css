@@ -144,3 +144,5 @@ table.simple td:last-child { text-align: right; }
 .trim-cuts .icon-btn { width: 26px; height: 26px; }
 .trim-cuts .icon-btn svg { width: 13px; height: 13px; }
 @media (max-width: 650px) { .trim-grid { grid-template-columns: 1fr 1fr; } }
+
+.draft-note { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin: 10px 0 4px; padding: 10px 12px; border-radius: 8px; background: #17224a; border: 1px solid #445caa; color: #d6e2ff; font-size: 13px; line-height: 1.5; }

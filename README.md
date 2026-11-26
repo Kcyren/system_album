@@ -130,6 +130,9 @@ Good to know:
 - **Synced lyrics:** in the Studio, play the track and tap as each line starts. On the site the lines light up karaoke-style, and clicking a line jumps to it.
 - **Shout-outs:** visitors leave short messages on a track. They appear only after he approves them in Studio → Shout-outs.
 - **✂️ Trim & cut** (Studio → Edit track): drag handles to trim the start and end, select and cut out parts, and add fade in/out, with a preview. The original file is kept, so edits can be undone any time (update 006).
+- **✨ Auto-sync lyrics** (Studio → track → Lyrics): a free Whisper speech model runs in his browser, listens to the track and lines the written lyrics up with his voice, or writes the lyrics when the box is empty. Audio never leaves the browser; the ~80 MB model downloads once.
+- **Playlist** button beside ⏮ in the player, **true full-screen** button, and layouts tuned for phones and tablets (Redmi Pad etc.).
+- **Refresh-safe editing:** the Studio reopens the track you were editing and restores unsaved changes.
 - **Spam protection** shared by every server copy: limits on sign-in attempts, plays, reactions, follows and shout-outs are counted in the database (update 005), with scrambled IPs only.
 - **Live listeners:** "3 listening now" on the track page and in the player (needs update 004).
 

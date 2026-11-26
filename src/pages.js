@@ -48,6 +48,18 @@ router.get(['/', '/index.html'], (req, res) => {
   render(req, res, { title: 'Surgthflur - Music', description: DEFAULT_DESCRIPTION });
 });
 
+// Section pages (the browser shows the right part of the same page).
+const SECTION_PAGES = {
+  '/music': ['Music', 'Every freestyle, mix and video from Surgthflur.'],
+  '/albums': ['Albums', 'Collections of tracks by Surgthflur.'],
+  '/journey': ['The journey', 'How the sound has grown, take by take: milestones, then & now, and the timeline.'],
+  '/about': ['About', 'Meet Surgthflur and follow for new music.'],
+};
+router.get(Object.keys(SECTION_PAGES), (req, res) => {
+  const [name, description] = SECTION_PAGES[req.path];
+  render(req, res, { title: `${name} — Surgthflur - Music`, description });
+});
+
 router.get('/track/:id', async (req, res) => {
   let track = null;
   if (config.configured) {

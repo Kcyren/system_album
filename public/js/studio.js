@@ -1,6 +1,8 @@
 import { icon, hydrateIcons, h, formatDuration, formatDate, plural, artFor, trackCard } from './ui.js';
 import { editMap } from './edits.js';
 
+const autoLyrics = () => import('./autolyrics.js'); // loaded only when used
+
 const $ = (selector, root = document) => root.querySelector(selector);
 const S = { email: null, tracks: [], albums: [], categories: [], profile: null, milestones: [], features: {}, tab: 'overview' };
 
@@ -283,9 +285,11 @@ function openTab(tab, ...args) {
     else b.removeAttribute('aria-current');
   });
   const panel = $('#panel');
+  S.editorDirty = null;
   panel.replaceChildren(views[tab](...args));
   hydrateIcons(panel);
-  history.replaceState(null, '', `#${tab}`);
+  const sub = typeof args[0] === 'string' && args[0] ? `/${args[0]}` : '';
+  history.replaceState(null, '', `#${tab}${sub}`);
 }
 
 function head(title, text, ...actions) {
@@ -436,7 +440,8 @@ function renderWeekly(panel, data) {
 
 // --------------------------------------------------------------- tracks
 views.tracks = (editId) => {
-  if (editId) return trackEditor(editId === 'new' ? null : S.tracks.find((t) => t.id === editId));
+  if (editId === 'new') return trackEditor(null);
+  if (editId && S.tracks.some((t) => t.id === editId)) return trackEditor(S.tracks.find((t) => t.id === editId));
   const missing = S.features.waveform ? S.tracks.filter((t) => !t.waveform) : [];
   const bulk = missing.length ? h('button', {
     class: 'btn', type: 'button',
@@ -543,6 +548,42 @@ function trackEditor(track) {
   const date = input({ type: 'date', value: track?.recordedDate || '' });
   const time = input({ type: 'time', value: track?.recordedTime || '' });
   const album = select([['', 'No album'], ...S.albums.map((a) => [a.id, a.title])], track?.album?.id || '');
+
+  // ---- unsaved changes survive a refresh or closed tab (kept in this browser only)
+  const draftKey = `sa_draft_${track?.id || 'new'}`;
+  const fields = { title, category, description, howMade, progressNote, lyrics, date, time, album };
+  const snapshot = () => JSON.stringify({
+    values: Object.fromEntries(Object.entries(fields).map(([k, el]) => [k, el.value])),
+    timing: timingTouched ? timing : undefined,
+    edit: editTouched ? edit : undefined,
+  });
+  const original = snapshot();
+  let restoredDraft = null;
+  try { restoredDraft = JSON.parse(localStorage.getItem(draftKey) || 'null'); } catch { restoredDraft = null; }
+  if (restoredDraft?.values) {
+    for (const [k, el] of Object.entries(fields)) if (typeof restoredDraft.values[k] === 'string') el.value = restoredDraft.values[k];
+    if (restoredDraft.timingTouched) { timing = restoredDraft.timing ?? null; timingTouched = true; }
+    if (restoredDraft.editTouched) { edit = restoredDraft.edit ?? null; editTouched = true; }
+  }
+  const pickedFile = () => Boolean(mediaFile.files[0] || cover.file());
+  let draftTimer = 0;
+  function saveDraftNow() {
+    const now = snapshot();
+    try {
+      if (now === original && !pickedFile()) localStorage.removeItem(draftKey);
+      else localStorage.setItem(draftKey, JSON.stringify({ savedAt: Date.now(), values: JSON.parse(now).values, timing, timingTouched, edit, editTouched, hadFile: pickedFile() }));
+    } catch { /* storage full or blocked: nothing to do */ }
+  }
+  function scheduleDraft() {
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(saveDraftNow, 250);
+  }
+  function clearDraft() {
+    clearTimeout(draftTimer);
+    try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
+  }
+  // Only a newly chosen file can't be brought back after a refresh, so only then ask before leaving.
+  S.editorDirty = () => pickedFile();
 
   const mediaPreview = h('div', { class: 'preview-media' });
   const cardPreview = h('div', { class: 'preview-card' });
@@ -714,6 +755,7 @@ function trackEditor(track) {
         ? await api('/api/studio/tracks', { method: 'POST', body })
         : await api(`/api/studio/tracks/${track.id}`, { method: 'PATCH', body });
       showProgress(1);
+      clearDraft();
       await refreshTracks();
       let message = nextStatus === 'published' ? 'Published! It is live on the site.' : 'Saved as a draft';
       if (saved.announcement?.sent) message += ` Emailed ${plural(saved.announcement.sent, 'follower')}.`;
@@ -740,6 +782,10 @@ function trackEditor(track) {
 
   const form = h('form', { class: 'panel', onsubmit: (e) => { e.preventDefault(); save(published ? 'published' : 'draft'); } },
     h('h2', {}, isNew ? 'New recording' : 'Edit recording'),
+    restoredDraft?.values ? h('div', { class: 'draft-note' },
+      h('span', {}, `↺ Restored your unsaved changes from ${new Date(restoredDraft.savedAt).toLocaleString(undefined, { hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' })}.`,
+        restoredDraft.hadFile ? ' Please choose your new audio/photo file again — browsers can’t keep files after a refresh.' : ''),
+      h('button', { class: 'btn small', type: 'button', onclick: () => { clearDraft(); openTab('tracks', track?.id || 'new'); } }, 'Discard')) : null,
     h('p', { class: 'muted' }, 'Only title, category and the file are required. Everything else is up to you.'),
     field('Title *', title),
     field('Category *', category),
@@ -1012,12 +1058,67 @@ function trackEditor(track) {
     const wrap = h('div', { class: 'sync-tool' });
     const fmt = (s) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
 
+    const autoStatus = h('p', { class: 'hint', role: 'status' });
+
+    // ✨ Listen to the recording (free, in this browser) and line the lyrics up automatically.
+    async function autoRun(mode) {
+      const src = mediaFile.files[0] || localMediaUrl || track?.mediaUrl;
+      if (!src) return toast('Choose the audio or video file first.');
+      const buttons = wrap.querySelectorAll('button');
+      buttons.forEach((b) => { b.disabled = true; });
+      const say = (text) => { autoStatus.textContent = text; };
+      say('Getting ready…');
+      try {
+        const { transcribe, alignLines, wordsToLines } = await autoLyrics();
+        const heard = await transcribe(src, (p) => {
+          if (p.stage === 'download') say(`Downloading the listening tool… ${p.pct}% (only the first time, ~80 MB)`);
+          if (p.stage === 'decode') say('Reading the recording…');
+          if (p.stage === 'listen') say(`Listening to ${formatDuration(p.seconds)} of music… this can take a minute or two. Keep this tab open.`);
+        });
+        if (!heard.words.length) throw new Error("Couldn't hear any words. Is the voice loud enough over the beat?");
+        if (mode === 'write') {
+          const result = wordsToLines(heard.words);
+          lyrics.value = result.lines.join(String.fromCharCode(10));
+          timing = result.timing;
+          timingTouched = true;
+          intro();
+          say(`✨ Wrote ${result.lines.length} lines and synced them. Read them through and fix any wrong words — the timing stays.`);
+        } else {
+          const lines = lyrics.value.split(/\r?\n/);
+          const result = alignLines(lines, heard.words, heard.duration);
+          timing = result.timing;
+          timingTouched = true;
+          intro();
+          say(result.matched === result.total
+            ? `✨ Synced all ${result.total} lines! Press “Synced — edit timing” to play it back and fix any line if needed.`
+            : `✨ Synced! ${result.matched} of ${result.total} lines were heard clearly; the others were placed in between. Press “Synced — edit timing” to check and fix them.`);
+        }
+        scheduleDraft();
+        toast('Lyrics synced — press Save to keep them');
+      } catch (error) {
+        console.warn(error);
+        intro();
+        say(`Auto-sync didn't work: ${error.message || error}. You can still tap along with “Sync lyrics to the music”.`);
+      } finally {
+        wrap.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+      }
+    }
+
     function intro() {
+      const hasLyrics = lyrics.value.trim().length > 0;
       wrap.replaceChildren(
-        h('button', { class: 'btn small', type: 'button', onclick: build }, timing ? '✓ Synced — edit timing' : '🎤 Sync lyrics to the music'),
-        h('p', { class: 'hint' }, 'Play the track and tap as each line starts. On the site, the lines then light up karaoke-style.'),
+        h('div', { class: 'form-actions', style: 'margin-top:0' },
+          hasLyrics
+            ? h('button', { class: 'btn small primary', type: 'button', onclick: () => autoRun('align') }, '✨ Auto-sync to the music')
+            : h('button', { class: 'btn small primary', type: 'button', onclick: () => autoRun('write') }, '✨ Write lyrics from the recording'),
+          hasLyrics ? h('button', { class: 'btn small', type: 'button', onclick: build }, timing ? '✓ Synced — edit timing' : '🎤 Sync by tapping') : null),
+        h('p', { class: 'hint' }, hasLyrics
+          ? 'Auto-sync listens to the track (free, right here in your browser) and lines your lyrics up with your voice. Or tap along yourself.'
+          : 'No lyrics yet? Let it listen and write them for you, already synced. Then fix any wrong words.'),
+        autoStatus,
       );
     }
+    lyrics.addEventListener('input', () => { if (!wrap.querySelector('.sync-panel')) intro(); });
 
     function build() {
       const src = localMediaUrl || track?.mediaUrl;
@@ -1150,12 +1251,14 @@ function trackEditor(track) {
   if (track?.mediaType === 'video' && !track.coverUrl) {
     autoCover(track.mediaUrl).then((blob) => blob && !cover.hasOwnImage() && cover.setAuto(blob));
   }
+  for (const type of ['input', 'change', 'click', 'pointerup']) form.addEventListener(type, scheduleDraft);
   return h('div', { class: 'editor' }, form, previewCol);
 }
 
 // --------------------------------------------------------------- albums
 views.albums = (editId) => {
-  if (editId) return albumEditor(editId === 'new' ? null : S.albums.find((a) => a.id === editId));
+  if (editId === 'new') return albumEditor(null);
+  if (editId && S.albums.some((a) => a.id === editId)) return albumEditor(S.albums.find((a) => a.id === editId));
   const root = h('div', {}, head('Albums', 'Group tracks into collections. Albums appear on the site once they have a published track.',
     h('button', { class: 'btn primary', type: 'button', html: icon('plus'), onclick: () => openTab('albums', 'new') }, 'New album')));
   if (!S.albums.length) {
@@ -1564,8 +1667,9 @@ async function showApp() {
   $('#loading').hidden = true;
   $('#app').hidden = false;
   $('#logout').hidden = false;
-  const tab = location.hash.slice(1);
-  openTab(views[tab] ? tab : 'overview');
+  const [tab, sub] = decodeURIComponent(location.hash.slice(1)).split('/');
+  if (views[tab]) openTab(tab, ...(sub ? [sub] : []));
+  else openTab('overview');
 }
 
 async function logout() {
@@ -1593,6 +1697,12 @@ $('#login-form').addEventListener('submit', async (event) => {
 });
 
 $('#logout').addEventListener('click', logout);
+addEventListener('beforeunload', (event) => {
+  if (S.editorDirty?.()) {
+    event.preventDefault();
+    event.returnValue = '';
+  }
+});
 $('#tabs').addEventListener('click', (event) => {
   const button = event.target.closest('[data-tab]');
   if (button) openTab(button.dataset.tab);

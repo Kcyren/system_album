@@ -15,7 +15,7 @@
 <link rel="stylesheet" href="/css/site.css">
 <script type="module" src="/js/app.js"></script>
 </head>
-<body>
+<body data-view="home">
 <div class="splash" id="splash" role="status" aria-live="polite" aria-label="Loading Surgthflur - Music">
   <img class="splash-logo" src="/brand/logo-animated.svg" alt="" width="300" height="300">
   <div class="splash-status"><span id="splash-line">CONNECTING</span><span class="splash-cursor" aria-hidden="true"></span></div>
@@ -27,10 +27,10 @@
   <header class="header">
     <a class="brand" href="/" data-link><span class="brand-mark logo"><img src="/brand/logo-mark.svg" alt="" width="40" height="40"></span> SURGTHFLUR<span class="brand-dash">-</span>MUSIC</a>
     <nav class="nav" aria-label="Main navigation">
-      <a href="/#music" data-link>Music</a>
-      <a href="/#albums" data-link>Albums</a>
-      <a href="/#journey" data-link>Journey</a>
-      <a href="/#about" data-link>About</a>
+      <a href="/music" data-link data-nav="music">Music</a>
+      <a href="/albums" data-link data-nav="albums">Albums</a>
+      <a href="/journey" data-link data-nav="journey">Journey</a>
+      <a href="/about" data-link data-nav="about">About</a>
           </nav>
     <div class="header-actions">
       <button class="nav-fire" id="fire-toggle" type="button" aria-pressed="false" title="Fire mode"><span class="flame" aria-hidden="true">🔥</span><span class="fire-text">Fire mode</span></button>
@@ -44,15 +44,15 @@
 
     <!-- ===================================================== HOME -->
     <div id="home">
-      <section class="hero">
+      <section class="hero v-home">
         <div class="hero-copy">
           <img class="hero-wordmark" src="/brand/wordmark-animated.svg" alt="Surgthflur - Music" width="600" height="190">
           <div class="overline" id="hero-overline">Independent sound</div>
           <h1 id="hero-title">Every take.<br>Every <span class="blue">step.</span><br>All sound.</h1>
           <p id="hero-text">Raw freestyles, new experiments, and the journey behind them. This is Surgthflur making music for the love of it.</p>
           <div class="buttons">
-            <a class="btn primary" href="/#music" data-link>Explore the music</a>
-            <a class="btn" href="/#journey" data-link>See the journey</a>
+            <a class="btn primary" href="/music" data-link>Explore the music</a>
+            <a class="btn" href="/journey" data-link>See the journey</a>
           </div>
           <div class="hero-foot"><span class="spark">✳</span><span><b>No account needed.</b> Just come as you are and listen.</span></div>
         </div>
@@ -69,17 +69,19 @@
         </div>
       </section>
 
-      <div class="led-wall" aria-hidden="true"><canvas class="led-canvas" data-cell="12"></canvas></div>
+      <div class="led-wall v-home" aria-hidden="true"><canvas class="led-canvas" data-cell="12"></canvas></div>
 
-      <div class="ribbon" aria-hidden="true"><span>Raw ideas / real progress</span><span>✳ Made for the love of music</span><span>Independent &amp; always evolving</span></div>
+      <div class="ribbon v-home" aria-hidden="true"><span>Raw ideas / real progress</span><span>✳ Made for the love of music</span><span>Independent &amp; always evolving</span></div>
 
-      <section class="section" id="music" aria-labelledby="music-heading">
+      <section class="section v-home v-music" id="music" aria-labelledby="music-heading">
         <div class="section-top">
           <div>
-            <div class="label">01 / music</div>
+            <div class="label">Music</div>
             <h2 id="music-heading">The sound is<br>always evolving.</h2>
-            <p>Fresh uploads up front. A new mix of discoveries every time you come back.</p>
+            <p class="home-only">Fresh uploads up front. A new mix of discoveries every time you come back.</p>
+            <p class="music-only">Every freestyle, mix and video — search or filter by category.</p>
           </div>
+          <a class="btn home-only" href="/music" data-link>Browse all music →</a>
         </div>
         <div class="tools">
           <label class="sr" for="search">Search music</label>
@@ -104,15 +106,24 @@
         </div>
       </section>
 
-      <section class="section" id="albums" aria-labelledby="albums-heading" hidden>
-        <div class="section-top"><div><div class="label">02 / albums</div><h2 id="albums-heading">Collections.</h2><p>Tracks grouped the way Surgthflur meant them.</p></div></div>
+      <section class="section v-home" id="explore" aria-labelledby="explore-heading">
+        <div class="section-top"><div><div class="label">Explore</div><h2 id="explore-heading">More from Surgthflur.</h2></div></div>
+        <div class="explore-grid">
+          <a class="explore-card" href="/albums" data-link><span class="explore-kicker">Albums</span><b>Collections</b><span class="explore-text" id="explore-albums">Tracks grouped the way he meant them.</span><span class="explore-go">Open albums →</span></a>
+          <a class="explore-card" href="/journey" data-link><span class="explore-kicker">The journey</span><b>Progress</b><span class="explore-text" id="explore-journey">Milestones, then &amp; now, and the timeline.</span><span class="explore-go">See the journey →</span></a>
+          <a class="explore-card" href="/about" data-link><span class="explore-kicker">The story</span><b>Behind the sound</b><span class="explore-text" id="explore-about">Meet the artist and follow for new drops.</span><span class="explore-go">About Surgthflur →</span></a>
+        </div>
+      </section>
+
+      <section class="section v-albums" id="albums" aria-labelledby="albums-heading">
+        <div class="section-top"><div><div class="label">Albums</div><h2 id="albums-heading">Collections.</h2><p>Tracks grouped the way Surgthflur meant them.</p></div></div>
         <div id="album-grid" class="grid albums-grid"></div>
       </section>
 
-      <section class="section" id="journey" aria-labelledby="journey-heading">
+      <section class="section v-journey" id="journey" aria-labelledby="journey-heading">
         <div class="journey">
           <div class="journey-intro">
-            <div class="label light">03 / the journey</div>
+            <div class="label light">The journey</div>
             <h2 id="journey-heading">Progress is<br>part of the music.</h2>
             <p>Every recording is a step. Here's how the sound has grown, take by take.</p>
           </div>
@@ -129,8 +140,8 @@
         </div>
       </section>
 
-      <section class="section" id="about" aria-labelledby="about-heading">
-        <div class="section-top"><div><div class="label">04 / the story</div><h2 id="about-heading">Behind the sound.</h2></div></div>
+      <section class="section v-about" id="about" aria-labelledby="about-heading">
+        <div class="section-top"><div><div class="label">The story</div><h2 id="about-heading">Behind the sound.</h2></div></div>
         <div class="about">
           <article class="about-card">
             <div class="person"><div id="avatar" class="avatar">S</div><div><div class="label">The artist</div><h3 id="artist-name">Surgthflur</h3></div></div>
@@ -186,6 +197,7 @@
     <canvas class="led-canvas np-led" data-cell="9" aria-hidden="true"></canvas>
     <div class="np-wave" id="np-wave" hidden></div>
     <div class="np-controls">
+      <button class="icon-btn" id="btn-queue" type="button" aria-label="Playlist" aria-expanded="false" aria-controls="queue-panel" data-icon="list"></button>
       <button class="icon-btn" id="btn-prev" type="button" aria-label="Previous track" data-icon="prev"></button>
       <button class="np-play" id="btn-play" type="button" aria-label="Play" data-icon="play"></button>
       <button class="icon-btn" id="btn-next" type="button" aria-label="Next track" data-icon="next"></button>
@@ -198,6 +210,7 @@
     <div class="np-extra">
       <button class="icon-btn" id="btn-mute" type="button" aria-label="Mute" data-icon="volume"></button>
       <input type="range" id="volume" min="0" max="100" value="100" aria-label="Volume">
+      <button class="icon-btn" id="btn-fullscreen" type="button" aria-label="Fill the whole screen" data-icon="maximize" hidden></button>
       <button class="icon-btn" id="btn-expand" type="button" aria-label="Expand player" data-icon="expand"></button>
       <button class="icon-btn" id="btn-close" type="button" aria-label="Close player" data-icon="close"></button>
     </div>
@@ -219,6 +232,12 @@
     </div>
   </form>
 </dialog>
+
+<!-- ======================================================== PLAYLIST -->
+<aside class="queue-panel" id="queue-panel" aria-label="Playlist" hidden>
+  <div class="queue-head"><h3>Playlist</h3><button class="icon-btn" id="queue-close" type="button" aria-label="Close playlist" data-icon="close"></button></div>
+  <div class="queue-body" id="queue-body"></div>
+</aside>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 </body>

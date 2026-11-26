@@ -724,3 +724,90 @@ html.fire .tl-item time, html.fire .detail-meta, html.fire .footer, html.fire .f
 html.fire .nav a:hover, html.fire .footer-studio:hover { color: #fff; }
 html.fire .react { background: #1b0e0b; }
 html.fire .react:hover { border-color: #ff6a2b; }
+
+/* ==========================================================================
+   Flame default cover (public/media/flame-cover.mp4): blue, or red in fire mode
+   ========================================================================== */
+.flame-art { background: #000; }
+.flame-art::before, .flame-art::after { display: none; }
+.flame-art > video, .flame-art > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block;
+  filter: hue-rotate(195deg) saturate(1.15) brightness(1.05); transition: filter .6s; }
+html.fire .flame-art > video, html.fire .flame-art > img { filter: saturate(1.1); }
+html.fire .card-title a:hover, html.fire .card.is-current .card-title a { color: #ffd0a8; }
+
+/* ==========================================================================
+   Lyrics that pop up over the cover while a song plays
+   ========================================================================== */
+.lyric-pop { position: absolute; left: 7%; right: 7%; top: 50%; z-index: 3; transform: translateY(-50%); text-align: center; pointer-events: none; opacity: 0;
+  font: 800 clamp(15px, 1.7vw, 22px)/1.22 'Space Grotesk', sans-serif; letter-spacing: -.01em; color: #fff; overflow-wrap: anywhere;
+  text-shadow: 0 2px 14px rgb(0 0 0 / .9), 0 0 26px rgb(var(--glow) / .75); }
+.lyric-pop::before { content: ''; position: absolute; inset: -40% -12%; z-index: -1; background: radial-gradient(closest-side, rgb(0 0 0 / .55), transparent); }
+.lyric-pop.show { animation: lyric-in .5s var(--ease) forwards; }
+@keyframes lyric-in {
+  from { opacity: 0; transform: translateY(-25%) scale(.9); filter: blur(5px); }
+  to { opacity: 1; transform: translateY(-50%) scale(1); filter: blur(0); }
+}
+.detail-art .lyric-pop { font-size: clamp(22px, 2.8vw, 38px); }
+.player.expanded .np-stage .lyric-pop { font-size: clamp(22px, 3vw, 40px); }
+.player:not(.expanded) .lyric-pop { display: none; }
+
+/* ==========================================================================
+   Bottom player: cleaner look, controls centred on the page
+   ========================================================================== */
+.player { background: linear-gradient(180deg, rgb(17 24 46 / .97), rgb(8 11 20 / .98)); }
+html.fire .player { background: linear-gradient(180deg, rgb(30 13 9 / .97), rgb(12 6 5 / .98)); }
+.np-stage { border-radius: 10px; box-shadow: 0 0 0 1px rgb(var(--glow) / .35), 0 6px 18px rgb(0 0 0 / .5); }
+.np-title { font-size: 15px; }
+.np-play { background: radial-gradient(circle at 35% 30%, #fff, #e4ebff); box-shadow: 0 0 0 5px rgb(var(--glow) / .16), 0 8px 20px rgb(0 0 0 / .45); }
+html.fire .np-play { background: radial-gradient(circle at 35% 30%, #fff, #ffe7d9); }
+.np-progress input[type=range] { transition: height .15s; }
+.np-progress:hover input[type=range]::-webkit-slider-runnable-track { height: 6px; }
+.np-progress:hover input[type=range]::-webkit-slider-thumb { margin-top: -3.5px; }
+
+@media (min-width: 1051px) {
+  /* left (cover + title) | centre (buttons over the progress bar) | right (volume & more), centre stays centred */
+  .player-sheet {
+    height: 88px;
+    grid-template-columns: 58px minmax(0, 1fr) minmax(340px, 560px) minmax(0, 1fr) 58px;
+    grid-template-rows: auto auto;
+    grid-template-areas: 'stage meta controls extra extra' 'stage meta progress extra extra';
+    row-gap: 4px;
+    align-content: center;
+  }
+  .np-stage { width: 58px; height: 58px; align-self: center; }
+  .np-meta { align-self: center; }
+  .np-controls { justify-self: center; gap: 14px; }
+  .np-play { width: 44px; height: 44px; }
+  .np-progress { width: 100%; }
+  .np-extra { justify-self: end; align-self: center; grid-row: 1 / span 2; }
+}
+
+/* ==========================================================================
+   Full-screen player: everything fits on one screen
+   ========================================================================== */
+.player.expanded .player-sheet { min-height: 100vh; min-height: 100dvh; }
+@media (min-width: 900px) {
+  .player.expanded .player-sheet {
+    max-width: 1120px; height: auto; padding: 24px 40px;
+    grid-template-columns: minmax(0, 1.05fr) minmax(320px, 1fr);
+    grid-template-rows: auto 1fr auto auto auto auto auto auto auto 1fr;
+    grid-template-areas: 'collapse collapse' 'stage .' 'stage meta' 'stage led' 'stage wave' 'stage progress' 'stage controls' 'stage extra' 'stage lyrics' 'stage .';
+    column-gap: 56px; row-gap: 16px; align-items: center; align-content: center; justify-items: stretch;
+  }
+  .player.expanded .np-stage { width: min(100%, 76vh); justify-self: center; align-self: center; }
+  .player.expanded.is-video .np-stage { width: 100%; max-height: 76vh; }
+  .player.expanded .np-meta { text-align: left; }
+  .player.expanded .np-title { font-size: 32px; }
+  .player.expanded .np-controls, .player.expanded .np-extra { justify-content: center; justify-self: center; }
+  .player.expanded .np-lyrics:not([hidden]) { max-height: 24vh; }
+}
+@media (max-width: 899px) {
+  .player.expanded .np-stage { width: min(100%, 46vh); }
+  .player.expanded .player-sheet { padding: 16px 20px 28px; gap: 14px; }
+}
+.player:not(.expanded) .player-collapse { display: none !important; }
+.player.expanded .np-extra { grid-area: extra; }
+html.fire .synced .ly-line { color: #a8817a; }
+html.fire .synced .ly-line.done { color: #d2a796; }
+html.fire .synced .ly-line:hover { color: #f1d3c5; }
+html.fire .synced .ly-line.active { color: #fff; }

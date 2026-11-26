@@ -94,23 +94,43 @@ function hueFor(seed) {
 }
 
 // Default artwork when no image was uploaded: a generated "record" cover.
-export function generatedArt(seed, label) {
-  const art = h('div', { class: 'art', 'aria-hidden': 'true' });
-  art.style.setProperty('--h', hueFor(seed));
-  const words = String(label || 'S').trim().split(/\s+/);
-  const initials = words.length > 1 ? words.slice(0, 2).map((w) => w[0]).join('') : words[0].slice(0, 3);
-  art.append(h('div', { class: 'art-text' }, initials));
+// Default cover when no image was uploaded: a looping flame (blue normally,
+// red in fire mode — the colour is set in CSS). Plays only while on screen.
+export const FLAME_VIDEO = '/media/flame-cover.mp4';
+export const FLAME_POSTER = '/media/flame-cover.jpg';
+const stillFlames = matchMedia('(prefers-reduced-motion: reduce)').matches || Boolean(navigator.connection?.saveData);
+
+export function generatedArt(seed, label, { still = false } = {}) {
+  const art = h('div', { class: 'art flame-art', 'aria-hidden': 'true' });
+  if (still || stillFlames) {
+    art.append(h('img', { src: FLAME_POSTER, alt: '', loading: 'lazy', decoding: 'async' }));
+  } else {
+    const video = h('video', {
+      class: 'flame-video', muted: true, loop: true, playsinline: true, preload: 'none',
+      poster: FLAME_POSTER, 'data-src': FLAME_VIDEO, tabindex: '-1', 'aria-hidden': 'true',
+    });
+    video.muted = true;
+    art.append(video);
+  }
   return art;
 }
 
-export function artFor(item, { alt = true } = {}) {
+// Starts flame videos inside root right away (used for the player, which is always visible).
+export function startFlames(root) {
+  root.querySelectorAll('video.flame-video').forEach((video) => {
+    if (!video.src) video.src = video.dataset.src;
+    video.play().catch(() => {});
+  });
+}
+
+export function artFor(item, { alt = true, still = false } = {}) {
   if (item.coverUrl) {
     const img = h('img', { src: item.coverUrl, alt: alt ? `Artwork for ${item.title}` : '', loading: 'lazy', decoding: 'async' });
     // If the image can't load, show the generated cover instead of a broken icon.
-    img.addEventListener('error', () => img.replaceWith(generatedArt(item.id, item.title)), { once: true });
+    img.addEventListener('error', () => img.replaceWith(generatedArt(item.id, item.title, { still })), { once: true });
     return img;
   }
-  return generatedArt(item.id, item.title);
+  return generatedArt(item.id, item.title, { still });
 }
 
 // ------------------------------------------------------------ waveform

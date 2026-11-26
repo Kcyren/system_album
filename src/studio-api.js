@@ -85,15 +85,13 @@ router.get('/overview', async (req, res) => {
     if (error) throw new HttpError(500, 'Database error.');
     return total || 0;
   };
-  const { v4 } = await schemaFeatures();
-  const [tracks, published, drafts, albums, subscribers, reactions, pendingShoutouts] = await Promise.all([
+  const [tracks, published, drafts, albums, subscribers, reactions] = await Promise.all([
     db.from('tracks').select('id,title,plays,status').then(must),
     count('tracks', (q) => q.eq('status', 'published')),
     count('tracks', (q) => q.eq('status', 'draft')),
     count('albums'),
     count('subscribers'),
     count('reactions'),
-    v4 ? count('shoutouts', (q) => q.eq('status', 'pending')) : 0,
   ]);
   res.json({
     published,
@@ -101,7 +99,6 @@ router.get('/overview', async (req, res) => {
     albums,
     subscribers,
     reactions,
-    pendingShoutouts,
     plays: tracks.reduce((sum, t) => sum + Number(t.plays || 0), 0),
     topTracks: tracks
       .filter((t) => t.status === 'published' && Number(t.plays) > 0)
@@ -115,7 +112,6 @@ router.get('/overview', async (req, res) => {
 router.get('/features', async (req, res) => {
   const { v2, stats, v3, v4 } = await schemaFeatures();
   res.json({
-    shoutouts: v4,
     syncedLyrics: v4,
     edits: (await schemaFeatures()).v6,
     lyrics: v2,
@@ -504,25 +500,6 @@ router.get('/subscribers.csv', async (req, res) => {
 
 router.delete('/subscribers/:id', async (req, res) => {
   must(await db.from('subscribers').delete().eq('id', Number(req.params.id)));
-  res.json({ ok: true });
-});
-
-// ============================================================== shout-outs
-router.get('/shoutouts', async (req, res) => {
-  if (!(await schemaFeatures()).v4) return res.json([]);
-  const status = req.query.status === 'approved' ? 'approved' : 'pending';
-  const rows = must(await db.from('shoutouts').select('id,name,message,status,created_at,track:tracks(id,title)').eq('status', status).order('created_at', { ascending: false }).limit(200));
-  res.json(rows.map((r) => ({ id: r.id, name: r.name, message: r.message, status: r.status, createdAt: r.created_at, track: r.track })));
-});
-
-router.patch('/shoutouts/:id', async (req, res) => {
-  if (req.body?.status !== 'approved' && req.body?.status !== 'pending') throw bad('Status must be approved or pending.');
-  must(await db.from('shoutouts').update({ status: req.body.status }).eq('id', idValue(req.params.id, 'Shout-out')));
-  res.json({ ok: true });
-});
-
-router.delete('/shoutouts/:id', async (req, res) => {
-  must(await db.from('shoutouts').delete().eq('id', idValue(req.params.id, 'Shout-out')));
   res.json({ ok: true });
 });
 

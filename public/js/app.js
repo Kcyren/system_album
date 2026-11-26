@@ -1,4 +1,4 @@
-import { icon, hydrateIcons, h, formatDuration, formatDate, formatTime, plural, artFor, trackCard, waveform } from './ui.js';
+import { icon, hydrateIcons, h, formatDuration, formatDate, formatTime, plural, artFor, trackCard, waveform, startFlames } from './ui.js';
 import { initFx, fxGesture, watchLeds } from './fx.js';
 import { makeStoryCard } from './story.js';
 import { editMap, editedPeaks } from './edits.js';
@@ -146,11 +146,67 @@ function updateWaves() {
 }
 
 // ---------------------------------------------------------- synced lyrics
-// Lines light up karaoke-style when the track has timings (set in the Studio).
+// Lines light up karaoke-style. Uses the timing set in the Studio; if there is
+// none, the lines are spread across the song (longer lines get more time).
+const lyricRows = (track) => track.lyrics.split(LINE_BREAK);
+const LINE_BREAK = /\r?\n/;
+
+function lyricTiming(track) {
+  if (!track?.lyrics) return null;
+  if (track.lyricsTiming) return track.lyricsTiming;
+  if (track.autoTiming !== undefined) return track.autoTiming;
+  const lines = lyricRows(track);
+  const map = editMap(track.edit, track.rawDuration);
+  const length = map ? map.length : Number(track.duration) || 0;
+  const weights = lines.map((line) => (line.trim() ? 1 + line.trim().length / 14 : 0));
+  const total = weights.reduce((sum, w) => sum + w, 0);
+  if (!length || !total) {
+    track.autoTiming = null;
+    return null;
+  }
+  const lead = Math.min(length * 0.04, 4);
+  const usable = length - lead - Math.min(length * 0.03, 3);
+  let t = lead;
+  track.autoTiming = lines.map((line, i) => {
+    if (!weights[i]) return null;
+    const start = t;
+    t += (weights[i] / total) * usable;
+    return Math.round((map ? map.toRaw(start) : start) * 100) / 100;
+  });
+  return track.autoTiming;
+}
+
 function lyricLines(track) {
-  return track.lyrics.split(/\r?\n/).map((line, i) => h('span', {
-    class: 'ly-line', 'data-i': String(i), 'data-t': track.lyricsTiming?.[i] ?? '',
+  const timing = lyricTiming(track);
+  return lyricRows(track).map((line, i) => h('span', {
+    class: 'ly-line', 'data-i': String(i), 'data-t': timing?.[i] ?? '',
   }, line || '\u00a0'));
+}
+
+// The current line pops up over the cover (cards, track page, full screen).
+function lyricPopHosts(id) {
+  return [...document.querySelectorAll(`.card[data-track="${id}"] .cover, .detail-art[data-track="${id}"]`), $('#np-stage')];
+}
+
+function showLyricPop(track, index) {
+  const text = index >= 0 ? (lyricRows(track)[index] || '').trim() : '';
+  for (const host of lyricPopHosts(track.id)) {
+    let pop = host.querySelector(':scope > .lyric-pop');
+    if (!pop) {
+      pop = h('div', { class: 'lyric-pop', 'aria-hidden': 'true' });
+      host.append(pop);
+    }
+    if (pop.dataset.text === text) continue;
+    pop.dataset.text = text;
+    pop.classList.remove('show');
+    void pop.offsetWidth; // restart the pop animation
+    pop.textContent = text;
+    if (text) pop.classList.add('show');
+  }
+}
+
+function clearLyricPops() {
+  document.querySelectorAll('.lyric-pop').forEach((pop) => pop.remove());
 }
 
 function seekToLyric(track, seconds) {
@@ -173,14 +229,16 @@ function onLyricClick(track) {
 
 function updateLyrics(force = false) {
   const track = player.track;
-  if (!track?.lyricsTiming) return;
+  const timing = lyricTiming(track);
+  if (!timing) return;
   const now = media.currentTime;
   let active = -1;
-  track.lyricsTiming.forEach((start, i) => {
+  timing.forEach((start, i) => {
     if (start !== null && start <= now + 0.15) active = i;
   });
   if (active === player.lyricIndex && !force) return;
   player.lyricIndex = active;
+  showLyricPop(track, active);
   document.querySelectorAll(`[data-lyrics="${track.id}"]`).forEach((box) => {
     box.querySelectorAll('.ly-line').forEach((line) => {
       const i = Number(line.dataset.i);
@@ -257,6 +315,7 @@ function load(track, autoplay) {
   media.poster = isVideo && track.coverUrl ? track.coverUrl : '';
   playerEl.classList.toggle('is-video', isVideo);
   $('#np-art').replaceChildren(artFor(track));
+  startFlames($('#np-art'));
   const title = $('#np-title');
   title.textContent = track.title;
   title.href = track.status === 'draft' ? location.pathname : `/track/${track.id}`;
@@ -271,10 +330,12 @@ function load(track, autoplay) {
   }
   $('#np-lyrics').hidden = !track.lyrics;
   const npLyrics = $('#np-lyrics-text');
-  npLyrics.className = track.lyricsTiming ? 'synced' : '';
-  npLyrics.dataset.lyrics = track.lyricsTiming ? track.id : '';
-  npLyrics.onclick = track.lyricsTiming ? onLyricClick(track) : null;
-  if (track.lyricsTiming) npLyrics.replaceChildren(...lyricLines(track));
+  const timed = Boolean(lyricTiming(track));
+  npLyrics.className = timed ? 'synced' : '';
+  npLyrics.dataset.lyrics = timed ? track.id : '';
+  npLyrics.onclick = timed ? onLyricClick(track) : null;
+  clearLyricPops();
+  if (timed) npLyrics.replaceChildren(...lyricLines(track));
   else npLyrics.textContent = track.lyrics || '';
   $('#np-live').hidden = true;
   $('#btn-prev').disabled = player.index <= 0 && player.queue.length <= 1;
@@ -315,6 +376,7 @@ function step(direction) {
 
 function closePlayer() {
   stopLive();
+  clearLyricPops();
   media.pause();
   media.removeAttribute('src');
   media.load();
@@ -338,7 +400,7 @@ function markCurrent() {
     const playing = button.dataset.playFor === id && !media.paused;
     button.innerHTML = icon(playing ? 'pause' : 'play') + (button.dataset.label ? `<span>${playing ? 'Pause' : button.dataset.label}</span>` : '');
   });
-  document.querySelectorAll('.card[data-track] .cover-btn').forEach((button) => {
+  document.querySelectorAll('.card[data-track] .cover-btn, .detail-art[data-track] .cover-btn').forEach((button) => {
     const playing = button.closest('[data-track]').dataset.track === id && !media.paused;
     button.innerHTML = icon(playing ? 'pause' : 'play');
   });
@@ -511,6 +573,10 @@ const videoObserver = 'IntersectionObserver' in window
         if (!video.src) {
           video.src = video.dataset.src;
           video.preload = 'metadata';
+          // Flames start at a random moment so cards don't flicker in sync.
+          if (video.classList.contains('flame-video')) {
+            video.addEventListener('loadedmetadata', () => { video.currentTime = Math.random() * (video.duration || 8); }, { once: true });
+          }
         }
         video.play().catch(() => {});
       } else {
@@ -522,11 +588,11 @@ const videoObserver = 'IntersectionObserver' in window
 
 function watchVideos(root) {
   if (!videoObserver || reducedMotion.matches || saveData()) return;
-  root.querySelectorAll('video.card-video').forEach((video) => videoObserver.observe(video));
+  root.querySelectorAll('video.card-video, video.flame-video').forEach((video) => videoObserver.observe(video));
 }
 
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) document.querySelectorAll('video.card-video').forEach((v) => v.pause());
+  if (document.hidden) document.querySelectorAll('video.card-video, video.flame-video').forEach((v) => v.pause());
 });
 
 // ================================================================= share
@@ -684,6 +750,7 @@ function fillGrid(grid, tracks, emptyMessage) {
   grid.replaceChildren(...(tracks.length ? tracks.map((t) => cardFor(t, tracks)) : [h('p', { class: 'empty' }, emptyMessage)]));
   watchVideos(grid);
   markCurrent();
+  updateLyrics(true);
 }
 
 function pickDiscover(pool) {
@@ -982,9 +1049,9 @@ async function showTrack(id) {
   if (track.description) prose.append(h('h3', {}, 'About this track'), h('p', {}, track.description));
   if (track.howMade) prose.append(h('h3', {}, 'How it was made'), h('p', {}, track.howMade));
   if (track.progressNote) prose.append(h('h3', {}, 'What changed / what I learned'), h('p', { class: 'note' }, track.progressNote));
-  if (track.lyrics && track.lyricsTiming) {
+  if (track.lyrics && lyricTiming(track)) {
     const box = h('div', { class: 'lyrics synced', 'data-lyrics': track.id, onclick: onLyricClick(track) }, ...lyricLines(track));
-    prose.append(h('h3', {}, 'Lyrics', h('span', { class: 'synced-tag' }, 'SYNCED')), box);
+    prose.append(h('h3', {}, 'Lyrics', track.lyricsTiming ? h('span', { class: 'synced-tag' }, 'SYNCED') : null), box);
   } else if (track.lyrics) {
     const lyrics = h('p', { class: 'lyrics' }, track.lyrics);
     prose.append(h('h3', {}, 'Lyrics'), lyrics);
@@ -1031,7 +1098,6 @@ async function showTrack(id) {
         shareRow,
       ),
     ),
-    !draft && state.features.shoutouts ? shoutoutsSection(track) : null,
     more,
   );
   // Show "N listening now" while this page is open.
@@ -1041,55 +1107,6 @@ async function showTrack(id) {
     state.trackPoll = setInterval(poll, 30000);
   }
   showPage(page, `${track.title} — ${state.profile?.artistName || 'Surgthflur'} - Music`);
-}
-
-// ============================================================ shout-outs
-function shoutoutsSection(track) {
-  const list = h('ul', { class: 'shout-list' }, h('li', { class: 'muted small' }, 'Loading shout-outs…'));
-  const name = h('input', { maxlength: '40', placeholder: 'Your name', 'aria-label': 'Your name', autocomplete: 'nickname', required: true });
-  name.value = store.get('sa_name', '');
-  const message = h('textarea', { maxlength: '280', placeholder: `Leave a shout-out for ${state.profile?.artistName || 'Surgthflur'}…`, 'aria-label': 'Your shout-out', required: true });
-  const count = h('span', { class: 'count' }, '0/280');
-  message.addEventListener('input', () => { count.textContent = `${message.value.length}/280`; });
-  const honeypot = h('input', { name: 'website', tabindex: '-1', autocomplete: 'off' });
-  const status = h('p', { class: 'status', role: 'status' });
-  const button = h('button', { class: 'btn primary', type: 'submit' }, 'Send shout-out');
-
-  const form = h('form', {
-    class: 'shout-form',
-    onsubmit: async (event) => {
-      event.preventDefault();
-      if (!name.value.trim() || !message.value.trim()) {
-        status.textContent = 'Please add your name and a message.';
-        return;
-      }
-      button.disabled = true;
-      try {
-        await api(`/api/shoutouts/${track.id}`, {
-          method: 'POST',
-          body: JSON.stringify({ name: name.value, message: message.value, visitor: visitorId(), website: honeypot.value }),
-        });
-        store.set('sa_name', name.value.trim());
-        message.value = '';
-        count.textContent = '0/280';
-        status.textContent = `Thanks! Your shout-out will appear once ${state.profile?.artistName || 'Surgthflur'} approves it.`;
-      } catch (error) {
-        status.textContent = error.message;
-      } finally {
-        button.disabled = false;
-      }
-    },
-  }, name, message, h('div', { class: 'hp', 'aria-hidden': 'true' }, honeypot), h('div', { class: 'row' }, count, button));
-
-  api(`/api/shoutouts/${track.id}`).then((rows) => {
-    list.replaceChildren(...(rows.length
-      ? rows.map((r) => h('li', { class: 'shout' }, h('b', {}, r.name), h('time', { datetime: r.createdAt }, formatDate(r.createdAt)), h('p', {}, r.message)))
-      : [h('li', { class: 'muted small' }, 'No shout-outs yet. Be the first!')]));
-  }).catch(() => list.replaceChildren());
-
-  return h('section', { class: 'shoutouts' },
-    h('div', { class: 'row-label' }, h('span', { class: 'label' }, 'Shout-outs')),
-    list, form, status);
 }
 
 // =========================================================== album page

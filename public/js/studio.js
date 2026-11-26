@@ -57,7 +57,7 @@ function setStatus(el, message, kind = '') {
 }
 
 function thumb(item) {
-  return h('div', { class: 'thumb' }, artFor(item, { alt: false }));
+  return h('div', { class: 'thumb' }, artFor(item, { alt: false, still: true }));
 }
 
 // Uploads a file straight to Supabase Storage using a one-time signed link.
@@ -306,12 +306,6 @@ views.overview = () => {
   api('/api/studio/stats').then((data) => renderWeekly(chartPanel, data)).catch((e) => chartPanel.append(h('p', { class: 'status error' }, e.message)));
   api('/api/studio/overview').then((o) => {
     const stat = (n, label) => h('div', { class: 'stat' }, h('b', {}, n.toLocaleString()), h('span', {}, label));
-    if (o.pendingShoutouts) {
-      stats.after(h('div', { class: 'panel', style: 'margin-top:16px' },
-        h('h3', {}, `💬 ${plural(o.pendingShoutouts, 'shout-out')} waiting for you`),
-        h('p', { class: 'muted small' }, 'Listeners left messages. Approve the ones you want to show on the site.'),
-        h('div', { class: 'form-actions' }, h('button', { class: 'btn primary', type: 'button', onclick: () => openTab('shoutouts') }, 'Review shout-outs'))));
-    }
     stats.replaceChildren(
       stat(o.published, 'Published tracks'), stat(o.drafts, 'Drafts'), stat(o.plays, 'Total plays'),
       stat(o.reactions, 'Reactions'), stat(o.subscribers, 'Followers'), stat(o.albums, 'Albums'),
@@ -1483,47 +1477,6 @@ views.categories = () => {
       }
     },
   }, field('New category', newName), h('div', { class: 'form-actions' }, h('button', { class: 'btn primary', type: 'submit' }, 'Add category'))));
-  return root;
-};
-
-// ----------------------------------------------------------- shout-outs
-views.shoutouts = (status = 'pending') => {
-  const root = h('div', {}, head('Shout-outs', 'Messages from listeners. Nothing shows on the site until you approve it.'));
-  if (!S.features.shoutouts) {
-    root.append(h('p', { class: 'empty' }, 'Needs database update 004: run supabase/migrations/004_shoutouts_listeners_synced_lyrics.sql in the Supabase SQL Editor.'));
-    return root;
-  }
-  const switcher = h('div', { class: 'form-actions', style: 'margin:0 0 14px' },
-    h('button', { class: `btn small${status === 'pending' ? ' primary' : ''}`, type: 'button', onclick: () => openTab('shoutouts', 'pending') }, 'Waiting'),
-    h('button', { class: `btn small${status === 'approved' ? ' primary' : ''}`, type: 'button', onclick: () => openTab('shoutouts', 'approved') }, 'On the site'));
-  const panel = h('div', { class: 'panel' }, h('p', { class: 'muted' }, 'Loading…'));
-  root.append(switcher, panel);
-
-  const act = async (method, id, body) => {
-    try {
-      await api(`/api/studio/shoutouts/${id}`, { method, body });
-      openTab('shoutouts', status);
-    } catch (e) {
-      toast(e.message);
-    }
-  };
-
-  api(`/api/studio/shoutouts?status=${status}`).then((rows) => {
-    if (!rows.length) {
-      panel.replaceChildren(h('p', { class: 'muted' }, status === 'pending' ? 'No new shout-outs. 🎧' : 'No approved shout-outs yet.'));
-      return;
-    }
-    panel.replaceChildren(h('ul', { class: 'list' }, ...rows.map((r) => h('li', { class: 'row no-thumb' },
-      h('div', {},
-        h('div', { class: 'row-title' }, r.name),
-        h('div', { class: 'row-sub' }, `on “${r.track?.title || 'a track'}” · ${formatDate(r.createdAt)}`),
-        h('p', { class: 'shout-msg' }, r.message)),
-      h('div', { class: 'row-actions' },
-        status === 'pending'
-          ? h('button', { class: 'btn small primary', type: 'button', onclick: () => act('PATCH', r.id, { status: 'approved' }) }, '✓ Approve')
-          : h('button', { class: 'btn small', type: 'button', onclick: () => act('PATCH', r.id, { status: 'pending' }) }, 'Hide'),
-        h('button', { class: 'btn small danger', type: 'button', onclick: () => confirm('Delete this shout-out?') && act('DELETE', r.id) }, 'Delete'))))));
-  }).catch((e) => panel.replaceChildren(h('p', { class: 'status error' }, e.message)));
   return root;
 };
 

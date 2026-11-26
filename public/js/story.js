@@ -63,6 +63,7 @@ export async function makeStoryCard(track, { artist = 'Surgthflur', url, fire = 
     document.fonts?.load('700 36px "DM Sans"'),
   ].filter(Boolean)).catch(() => {});
   const cover = await loadImage(track.coverUrl);
+  const flame = cover ? null : await loadImage('/media/flame-cover.jpg');
 
   const canvas = document.createElement('canvas');
   canvas.width = W;
@@ -108,6 +109,10 @@ export async function makeStoryCard(track, { artist = 'Surgthflur', url, fire = 
     const w = cover.width * scale;
     const h = cover.height * scale;
     g.drawImage(cover, x + (size - w) / 2, y + (size - h) / 2, w, h);
+  } else if (flame) {
+    g.filter = fire ? 'saturate(1.1)' : 'hue-rotate(195deg) saturate(1.15)'; // blue flames unless fire mode
+    g.drawImage(flame, x, y, size, size);
+    g.filter = 'none';
   } else {
     const art = g.createLinearGradient(x, y, x + size, y + size);
     art.addColorStop(0, c.art[0]);

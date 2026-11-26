@@ -48,7 +48,7 @@ router.get('/catalog', async (req, res) => {
     tracks,
     albums,
     journey: buildJourney(tracks, milestones, profile),
-    features: { shoutouts: features.v4, listeners: features.v4 },
+    features: { listeners: features.v4 },
   });
 });
 
@@ -105,38 +105,16 @@ router.post('/subscribe', guard('subscribe', 60 * 60 * 1000, 5), async (req, res
   res.json({ ok: true });
 });
 
-// ------------------------------------------------------------ shout-outs
-// Visitors can leave a short message; it only appears after approval.
+// -------------------------------------------------------- live listeners
+// While someone listens, their player checks in every ~20 seconds.
+// "Listening now" = checked in during the last 45 seconds.
+const LIVE_WINDOW_MS = 45 * 1000;
+
 const VISITOR = /^[a-zA-Z0-9-]{16,64}$/;
 
 async function publishedTrack(id) {
   return must(await db.from('tracks').select('id').eq('id', id).eq('status', 'published').maybeSingle());
 }
-
-router.get('/shoutouts/:id', async (req, res) => {
-  const id = idValue(req.params.id, 'Track');
-  if (!(await schemaFeatures()).v4) return res.json([]);
-  const rows = must(await db.from('shoutouts').select('id,name,message,created_at').eq('track_id', id).eq('status', 'approved').order('created_at', { ascending: false }).limit(50));
-  res.set('Cache-Control', 'no-store').json(rows.map((r) => ({ id: r.id, name: r.name, message: r.message, createdAt: r.created_at })));
-});
-
-router.post('/shoutouts/:id', guard('shoutouts', 60 * 60 * 1000, 5, 'You have sent a few shout-outs already. Try again later.'), async (req, res) => {
-  const id = idValue(req.params.id, 'Track');
-  if (req.body?.website) return res.json({ ok: true }); // honeypot
-  if (!(await schemaFeatures()).v4) throw new HttpError(503, 'Shout-outs are not switched on yet.');
-  const name = text(req.body?.name, { name: 'Name', max: 40, required: true });
-  const message = text(req.body?.message, { name: 'Message', max: 280, required: true });
-  const visitor = typeof req.body?.visitor === 'string' && VISITOR.test(req.body.visitor) ? req.body.visitor : null;
-  if (/https?:\/\/|www\./i.test(message)) throw new HttpError(400, 'Links are not allowed in shout-outs.');
-  if (!(await publishedTrack(id))) throw new HttpError(404, 'Track not found.');
-  must(await db.from('shoutouts').insert({ track_id: id, name, message, visitor }));
-  res.status(201).json({ ok: true });
-});
-
-// -------------------------------------------------------- live listeners
-// While someone listens, their player checks in every ~20 seconds.
-// "Listening now" = checked in during the last 45 seconds.
-const LIVE_WINDOW_MS = 45 * 1000;
 
 async function liveCount(id) {
   const since = new Date(Date.now() - LIVE_WINDOW_MS).toISOString();
